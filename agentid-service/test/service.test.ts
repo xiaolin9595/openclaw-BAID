@@ -94,6 +94,20 @@ test("development authentication is opt-in", async () => {
   await app.close();
 });
 
+test("cross-origin web sessions use a secure None cookie", async (t) => {
+  const config = { ...testConfig(), webOrigin: "https://app.example.com", allowedWebOrigins: new Set(["https://app.example.com"]) };
+  const delivery = new TestMagicLinkDelivery();
+  const app = await buildApp({ config, store: new MemoryStore(), issuerKey: await loadIssuerKey({ allowDevelopmentGeneration: true }), magicLinkDelivery: delivery, webAuthn: new TestWebAuthnAdapter() });
+  t.after(async () => app.close());
+
+  const start = await app.inject({ method: "POST", url: "/v1/auth/email-code/start", headers: { origin: config.webOrigin, "content-type": "application/json", "x-agentid-request": "1" }, payload: { email: "cross-origin@example.com" } });
+  assert.equal(start.statusCode, 202);
+  const consume = await app.inject({ method: "POST", url: "/v1/auth/email-code/consume", headers: { origin: config.webOrigin, "content-type": "application/json", "x-agentid-request": "1" }, payload: { email: "cross-origin@example.com", code: delivery.sent[0]!.code } });
+  assert.equal(consume.statusCode, 200);
+  assert.match(String(consume.headers["set-cookie"]), /SameSite=None/);
+  assert.match(String(consume.headers["set-cookie"]), /Secure/);
+});
+
 test("email-bound account registration, login and password recovery", async (t) => {
   const delivery = new TestMagicLinkDelivery();
   const app = await buildApp({ config: testConfig(), store: new MemoryStore(), issuerKey: await loadIssuerKey({ allowDevelopmentGeneration: true }), magicLinkDelivery: delivery, webAuthn: new TestWebAuthnAdapter() });

@@ -224,10 +224,14 @@ function safeReturnTo(value: string | undefined, config: AppConfig): string {
 }
 
 function setSession(reply: FastifyReply, dependencies: AppDependencies, token: string): void {
+  // GitHub Pages and the demo API use different origins. Lax cookies are not
+  // sent on the cross-site fetches used by the console, so the session would
+  // disappear immediately after a successful email-code exchange.
+  const crossSiteSession = dependencies.config.webOrigin !== dependencies.config.issuerUrl;
   reply.setCookie(dependencies.config.sessionCookieName, token, {
     httpOnly: true,
-    secure: dependencies.config.webOrigin.startsWith("https://"),
-    sameSite: "lax",
+    secure: crossSiteSession || dependencies.config.webOrigin.startsWith("https://"),
+    sameSite: crossSiteSession ? "none" : "lax",
     path: "/",
     maxAge: Math.floor(dependencies.config.sessionTtlMs / 1000),
   });
