@@ -9,7 +9,6 @@ import {
   CloseOutlined,
   CopyOutlined,
   FileSearchOutlined,
-  KeyOutlined,
   LaptopOutlined,
   LinkOutlined,
   LockOutlined,
@@ -44,16 +43,12 @@ function pageUrl(page: string, query = "") {
 
 type View = "agents" | "approvals" | "activity" | "security";
 type DetailTab = "devices" | "public" | "members" | "rules" | "activity";
-type PasskeyAction = { kind: "approve"; request: Approval; agentId?: string } | { kind: "revoke"; instance: Instance };
-
 const navigation: Array<{ id: View; label: string; icon: ReactNode }> = [
   { id: "agents", label: "我的 Agent", icon: <AppstoreOutlined /> },
   { id: "approvals", label: "待授权", icon: <SafetyCertificateOutlined /> },
   { id: "activity", label: "活动记录", icon: <FileSearchOutlined /> },
   { id: "security", label: "账户与安全", icon: <SettingOutlined /> },
 ];
-const developmentPasskeyEnabled = import.meta.env.VITE_ALLOW_DEMO_PASSKEY === "1";
-
 function formatTime(value?: string) {
   if (!value) return "未知";
   const time = new Date(value);
@@ -105,8 +100,6 @@ export default function ControlPlane() {
   const [deviceDetail, setDeviceDetail] = useState<Instance | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<Instance | null>(null);
   const [revokeName, setRevokeName] = useState("");
-  const [passkeyAction, setPasskeyAction] = useState<PasskeyAction | null>(null);
-  const [passkeyError, setPasskeyError] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const [demoStatus, setDemoStatus] = useState<DemoStatus | null>(null);
 
@@ -265,50 +258,34 @@ export default function ControlPlane() {
 
   const handleApprove = () => {
     if (!approvalTarget) return;
-    setPasskeyAction({ kind: "approve", request: approvalTarget, agentId: approvalAgentId });
-  };
-
-  const handlePasskeyAction = async (developmentCode?: string) => {
-    if (!passkeyAction) return;
-    if (!user) {
-      setNotice("登录会话已失效，请重新登录。");
-      return;
-    }
     setIsBusy(true);
-    setPasskeyError("");
-    try {
-      let verifiedUser: CurrentUser = user;
-      if (developmentCode) {
-        verifiedUser = await agentIdApi.verifyDevelopmentPasskey(user.username, developmentCode);
-      } else if (!verifiedUser.passkeyEnrolled) {
-        await agentIdApi.registerPasskey();
-        verifiedUser = { ...verifiedUser, passkeyEnrolled: true };
-      } else {
-        verifiedUser = await agentIdApi.verifyPasskey(verifiedUser.username);
-      }
-      setUser(verifiedUser);
-      if (passkeyAction.kind === "approve") {
-        await agentIdApi.approve(passkeyAction.request.id, passkeyAction.agentId);
-        setApprovals((current) => current.filter((request) => request.id !== passkeyAction.request.id));
+    void agentIdApi.approve(approvalTarget.id, approvalAgentId)
+      .then(() => {
+        setApprovals((current) => current.filter((request) => request.id !== approvalTarget.id));
         setApprovalTarget(null);
         setNotice("设备已获授权，客户端现在可以兑换绑定凭证");
-      } else {
-        await agentIdApi.revoke(passkeyAction.instance.agentId, passkeyAction.instance.instanceId);
-        setInstances((current) => ({
-          ...current,
-          [passkeyAction.instance.agentId]: (current[passkeyAction.instance.agentId] ?? []).filter((instance) => instance.jti !== passkeyAction.instance.jti),
-        }));
-        setDeviceDetail(null);
-        setRevokeTarget(null);
-        setRevokeName("");
-        setNotice("设备授权已撤销");
-      }
-      setPasskeyAction(null);
+        return loadWorkspace();
+      })
+      .catch((error) => setNotice(errorMessage(error)))
+      .finally(() => setIsBusy(false));
+  };
+
+  const handleRevoke = async () => {
+    if (!revokeTarget) return;
+    setIsBusy(true);
+    try {
+      await agentIdApi.revoke(revokeTarget.agentId, revokeTarget.instanceId);
+      setInstances((current) => ({
+        ...current,
+        [revokeTarget.agentId]: (current[revokeTarget.agentId] ?? []).filter((instance) => instance.jti !== revokeTarget.jti),
+      }));
+      setDeviceDetail(null);
+      setRevokeTarget(null);
+      setRevokeName("");
+      setNotice("设备授权已撤销");
       await loadWorkspace();
     } catch (error) {
-      const message = errorMessage(error);
-      setPasskeyError(message);
-      setNotice(message);
+      setNotice(errorMessage(error));
     } finally {
       setIsBusy(false);
     }
@@ -351,7 +328,7 @@ export default function ControlPlane() {
         {activeView === "agents" ? <AgentsView agents={agents} publicProfile={selectedAgent ? publicProfiles[selectedAgent.id] ?? null : null} members={selectedAgent ? members[selectedAgent.id] ?? [] : []} instances={selectedInstances} selectedAgent={selectedAgent} selectedAgentId={selectedAgentId} detailTab={detailTab} onSavePublicProfile={async (profile) => { if (!selectedAgent) return; const saved = await agentIdApi.updatePublicProfile(selectedAgent.id, profile); setPublicProfiles((current) => ({ ...current, [selectedAgent.id]: saved })); setNotice(saved.published ? "公开资料已发布" : "公开资料已保存为草稿"); }} onCreate={() => setIsCreateOpen(true)} onRename={handleRenameAgent} onOpenApprovals={() => setActiveView("approvals")} onOpenDevice={setDeviceDetail} onPair={() => setIsPairingOpen(true)} onRevoke={setRevokeTarget} onSelectAgent={setSelectedAgentId} onSelectTab={setDetailTab} /> : null}
         {activeView === "approvals" ? <ApprovalsView agents={agents} approvals={approvals} deepLinkRequest={approvalTarget} onBack={() => setActiveView("agents")} onOpen={openApproval} /> : null}
         {activeView === "activity" ? <ActivityView events={events} onBack={() => setActiveView("agents")} /> : null}
-        {activeView === "security" ? <SecurityView user={user} onRegisterPasskey={async () => { try { await agentIdApi.registerPasskey(); setUser((current) => current ? { ...current, passkeyEnrolled: true } : current); setNotice("Passkey 已登记"); } catch (error) { setNotice(errorMessage(error)); } }} onEmailBound={(updated) => { setUser(updated); setNotice("邮箱已绑定，可用于恢复账号"); }} /> : null}
+        {activeView === "security" ? <SecurityView user={user} onEmailBound={(updated) => { setUser(updated); setNotice("邮箱已绑定，可用于恢复账号"); }} /> : null}
       </main>
 
       <div className="mobile-nav" aria-label="移动端导航">{navigation.map((item) => <button className={activeView === item.id ? "is-active" : ""} key={item.id} onClick={() => setActiveView(item.id)} type="button">{item.icon}<span>{item.label}</span></button>)}</div>
@@ -360,8 +337,7 @@ export default function ControlPlane() {
       {isPairingOpen && selectedAgent ? <PairingModal onClose={() => setIsPairingOpen(false)} onCopy={copyValue} /> : null}
       {approvalTarget ? <ApprovalModal agents={agents} busy={isBusy} request={approvalTarget} selectedAgentId={approvalAgentId} onApprove={handleApprove} onDeny={() => void handleDeny()} onSelectAgent={setApprovalAgentId} onClose={() => setApprovalTarget(null)} /> : null}
       {deviceDetail ? <DeviceDrawer device={deviceDetail} onClose={() => setDeviceDetail(null)} onCopy={copyValue} onRevoke={() => setRevokeTarget(deviceDetail)} /> : null}
-      {revokeTarget && !passkeyAction ? <RevokeModal device={revokeTarget} name={revokeName} onChange={setRevokeName} onClose={() => { setRevokeTarget(null); setRevokeName(""); }} onConfirm={() => setPasskeyAction({ kind: "revoke", instance: revokeTarget })} /> : null}
-      {passkeyAction ? <PasskeyModal busy={isBusy} error={passkeyError} action={passkeyAction.kind} enrolled={user.passkeyEnrolled} onCancel={() => { setPasskeyAction(null); setPasskeyError(""); }} onConfirm={() => void handlePasskeyAction()} onDevelopmentConfirm={(code) => void handlePasskeyAction(code)} /> : null}
+      {revokeTarget ? <RevokeModal busy={isBusy} device={revokeTarget} name={revokeName} onChange={setRevokeName} onClose={() => { setRevokeTarget(null); setRevokeName(""); }} onConfirm={() => void handleRevoke()} /> : null}
     </div>
   );
 }
@@ -489,7 +465,7 @@ function SignInScreen({ error, onSignedIn }: { error: string | null; onSignedIn:
         <div className="brand-lockup"><div className="brand-mark">A</div><div><strong>AgentID</strong><span>IDENTITY CONSOLE</span></div></div>
         <span className="eyebrow">ACCOUNT ACCESS</span>
         <h1>{accountMode === "register" && authMode === "password" ? "创建账号" : "登录"}</h1>
-        <p>{authMode === "password" ? "使用账号和密码访问 AgentID 控制台。注册时需要验证邮箱，忘记密码时可用邮箱恢复。首次批准设备和撤销授权时将要求 Passkey 确认。" : "使用已绑定邮箱登录，或通过邮箱验证码重置账号密码。"}</p>
+        <p>{authMode === "password" ? "使用账号和密码访问 AgentID 控制台。注册时需要验证邮箱，忘记密码时可用邮箱恢复。登录后即可管理 Agent 和授权设备。" : "使用已绑定邮箱登录，或通过邮箱验证码重置账号密码。"}</p>
         {error ? <div className="surface-error" role="alert">{error}</div> : null}
         <div className="auth-tabs" role="tablist">
           <button className={authMode === "password" ? "is-active" : ""} onClick={() => { setAuthMode("password"); setCodeSent(false); setConsoleDelivery(false); }} role="tab" type="button">账号密码</button>
@@ -612,14 +588,14 @@ function DeviceTable({ instances, onOpen, onPair, onRevoke }: { instances: Insta
 
 function ApprovalsView({ agents, approvals, deepLinkRequest, onBack, onOpen }: { agents: Agent[]; approvals: Approval[]; deepLinkRequest: Approval | null; onBack: () => void; onOpen: (request: Approval) => void }) {
   const requests = deepLinkRequest && !approvals.some((request) => request.id === deepLinkRequest.id) && deepLinkRequest.status === "pending" ? [deepLinkRequest, ...approvals] : approvals;
-  return <section className="page"><div className="page-heading"><div><span className="eyebrow">SECURITY QUEUE</span><h1>待授权</h1><p>只批准你刚刚在 OpenClaw 客户端发起的请求。</p></div><button className="button button-quiet" onClick={onBack} type="button"><ArrowLeftOutlined /> 返回 Agent</button></div>{requests.length ? <section className="approval-list">{requests.map((request) => <div className="approval-row" key={request.id}><div className="approval-device"><LaptopOutlined /><span><strong>{request.instanceLabel}</strong><small>{request.platform}</small></span></div><div><span className="label">目标 Agent</span><strong>{agents.find((agent) => agent.id === request.agentId)?.name ?? "登录后选择"}</strong></div><div><span className="label">到期时间</span><strong className="countdown">{formatTime(request.expiresAt)}</strong></div><div><span className="label">公钥指纹</span><code>{request.publicKeyFingerprint}</code></div><button className="button button-primary" onClick={() => onOpen(request)} type="button">核对并授权 <RightOutlined /></button></div>)}</section> : <section className="empty-device-state compact"><CheckCircleFilled className="success-icon" /><h3>没有待处理请求</h3><p>从 OpenClaw 客户端发起连接后，新的设备请求会安全地显示在这里。</p></section>}<div className="approval-footnote"><SafetyCertificateOutlined /> 核对设备名称、公钥指纹和权限范围后，再使用 Passkey 批准。</div></section>;
+  return <section className="page"><div className="page-heading"><div><span className="eyebrow">SECURITY QUEUE</span><h1>待授权</h1><p>只批准你刚刚在 OpenClaw 客户端发起的请求。</p></div><button className="button button-quiet" onClick={onBack} type="button"><ArrowLeftOutlined /> 返回 Agent</button></div>{requests.length ? <section className="approval-list">{requests.map((request) => <div className="approval-row" key={request.id}><div className="approval-device"><LaptopOutlined /><span><strong>{request.instanceLabel}</strong><small>{request.platform}</small></span></div><div><span className="label">目标 Agent</span><strong>{agents.find((agent) => agent.id === request.agentId)?.name ?? "登录后选择"}</strong></div><div><span className="label">到期时间</span><strong className="countdown">{formatTime(request.expiresAt)}</strong></div><div><span className="label">公钥指纹</span><code>{request.publicKeyFingerprint}</code></div><button className="button button-primary" onClick={() => onOpen(request)} type="button">核对并授权 <RightOutlined /></button></div>)}</section> : <section className="empty-device-state compact"><CheckCircleFilled className="success-icon" /><h3>没有待处理请求</h3><p>从 OpenClaw 客户端发起连接后，新的设备请求会安全地显示在这里。</p></section>}<div className="approval-footnote"><SafetyCertificateOutlined /> 登录成功后，核对设备名称、公钥指纹和权限范围即可批准。</div></section>;
 }
 
 function ActivityView({ events, onBack }: { events: AuditEvent[]; onBack: () => void }) {
   return <section className="page"><div className="page-heading"><div><span className="eyebrow">AUDIT LOG</span><h1>活动记录</h1><p>来自服务端追加审计流的身份与授权事件。</p></div><button className="button button-quiet" onClick={onBack} type="button"><ArrowLeftOutlined /> 返回 Agent</button></div>{events.length ? <section className="audit-list">{events.map((event) => <div className="audit-item" key={event.id}><span className="audit-mark" /><time>{formatTime(event.at)}</time><strong>{event.type.replaceAll("_", " ")}</strong><span>{event.agentId ?? event.instanceId ?? "账户"}</span><span aria-hidden="true"><RightOutlined /></span></div>)}</section> : <section className="empty-device-state compact"><FileSearchOutlined /><h3>尚无审计事件</h3><p>创建 Agent、批准、拒绝和撤销设备后，事件将显示在这里。</p></section>}</section>;
 }
 
-function SecurityView({ user, onRegisterPasskey, onEmailBound }: { user: CurrentUser; onRegisterPasskey: () => Promise<void>; onEmailBound: (user: CurrentUser) => void }) {
+function SecurityView({ user, onEmailBound }: { user: CurrentUser; onEmailBound: (user: CurrentUser) => void }) {
   const [email, setEmail] = useState(user.email ?? "");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
@@ -664,7 +640,7 @@ function SecurityView({ user, onRegisterPasskey, onEmailBound }: { user: Current
       setBusy(false);
     }
   };
-  return <section className="page"><div className="page-heading"><div><span className="eyebrow">ACCOUNT PROTECTION</span><h1>账户与安全</h1><p>管理账号密码、邮箱恢复和高风险操作确认。</p></div></div><section className="security-list"><div className="security-row"><span className="security-icon"><UserOutlined /></span><div><strong>账号</strong><p>{user.username}</p></div><span className="status status-online"><CheckCircleFilled /> 已启用</span></div><div className="security-row"><span className="security-icon"><KeyOutlined /></span><div><strong>Passkey</strong><p>{user.passkeyEnrolled ? "已登记，可用于批准或撤销设备。" : "登记后可用于批准和撤销设备。"}</p></div><span className={`status status-${user.passkeyEnrolled ? "online" : "expiring"}`}>{user.passkeyEnrolled ? <CheckCircleFilled /> : <BellOutlined />}{user.passkeyEnrolled ? " 已启用" : " 待登记"}</span>{user.passkeyEnrolled ? null : <button className="text-action" onClick={() => void onRegisterPasskey()} type="button">登记</button>}</div><div className="security-row email-security-row"><span className="security-icon"><UserOutlined /></span><div><strong>恢复邮箱</strong><p>{user.email ?? "尚未绑定邮箱"}</p>{!user.email || sent ? <div className="email-binding-form"><input aria-label="恢复邮箱" disabled={sent} inputMode="email" onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" type="email" value={email} />{sent ? <><input aria-label="邮箱验证码" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="6 位验证码" value={code} />{demoModeEnabled ? <button className="text-action" disabled={busy} onClick={() => void readDemoMailbox()} type="button">读取演示验证码</button> : null}<button className="text-action" disabled={code.length !== 6 || busy} onClick={() => void verifyBindingCode()} type="button">确认绑定</button></> : <button className="text-action" disabled={!email.includes("@") || busy} onClick={() => void sendBindingCode()} type="button">发送验证邮件</button>}</div> : null}{notice ? <span className="auth-notice" role="status">{notice}</span> : null}</div><span className={`status status-${user.email ? "online" : "expiring"}`}>{user.email ? <CheckCircleFilled /> : <BellOutlined />}{user.email ? " 已绑定" : " 待绑定"}</span></div><div className="security-row"><span className="security-icon"><LockOutlined /></span><div><strong>会话保护</strong><p>高风险操作需要近期完成 Passkey 验证。</p></div></div></section><section className="security-note"><SafetyCertificateOutlined /><span>网站不会保存 OpenClaw 实例私钥、设备码或长期客户端令牌。</span></section></section>;
+  return <section className="page"><div className="page-heading"><div><span className="eyebrow">ACCOUNT PROTECTION</span><h1>账户与安全</h1><p>管理账号密码和邮箱恢复。</p></div></div><section className="security-list"><div className="security-row"><span className="security-icon"><UserOutlined /></span><div><strong>账号</strong><p>{user.username}</p></div><span className="status status-online"><CheckCircleFilled /> 已启用</span></div><div className="security-row email-security-row"><span className="security-icon"><UserOutlined /></span><div><strong>恢复邮箱</strong><p>{user.email ?? "尚未绑定邮箱"}</p>{!user.email || sent ? <div className="email-binding-form"><input aria-label="恢复邮箱" disabled={sent} inputMode="email" onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" type="email" value={email} />{sent ? <><input aria-label="邮箱验证码" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="6 位验证码" value={code} />{demoModeEnabled ? <button className="text-action" disabled={busy} onClick={() => void readDemoMailbox()} type="button">读取演示验证码</button> : null}<button className="text-action" disabled={code.length !== 6 || busy} onClick={() => void verifyBindingCode()} type="button">确认绑定</button></> : <button className="text-action" disabled={!email.includes("@") || busy} onClick={() => void sendBindingCode()} type="button">发送验证邮件</button>}</div> : null}{notice ? <span className="auth-notice" role="status">{notice}</span> : null}</div><span className={`status status-${user.email ? "online" : "expiring"}`}>{user.email ? <CheckCircleFilled /> : <BellOutlined />}{user.email ? " 已绑定" : " 待绑定"}</span></div></section><section className="security-note"><SafetyCertificateOutlined /><span>网站不会保存 OpenClaw 实例私钥、设备码或长期客户端令牌。</span></section></section>;
 }
 
 function DemoPanel({ status, onStartP2P, onReset }: { status: DemoStatus | null; onStartP2P: (mode?: "initial" | "after-revoke") => Promise<void>; onReset: () => void }) {
@@ -676,24 +652,16 @@ function DemoPanel({ status, onStartP2P, onReset }: { status: DemoStatus | null;
 
 function PairingModal({ onClose, onCopy }: { onClose: () => void; onCopy: (value: string, label: string) => void }) {
   const command = "openclaw libp2p-mesh agentid link";
-  return <Modal title="连接 OpenClaw" wide onClose={onClose}><div className="pairing-layout"><div className="pairing-qr pairing-icon"><LinkOutlined /></div><div className="pairing-copy"><span className="eyebrow">DEVICE AUTHORIZATION</span><h3>从客户端发起连接</h3><p>设备授权必须由持有 Instance ID 私钥的 OpenClaw 客户端发起。网站会核对设备名称、公钥指纹和权限范围。</p><div className="command-line"><code>{command}</code><button aria-label="复制命令" onClick={() => void onCopy(command, "连接命令")} title="复制命令" type="button"><CopyOutlined /></button></div><div className="pairing-checklist"><span><CheckOutlined /> 客户端生成 PKCE 与实例签名密钥证明</span><span><CheckOutlined /> 网站核对设备指纹并使用 Passkey 批准</span><span><CheckOutlined /> 客户端本地验证并保存 IBC</span></div></div></div></Modal>;
+  return <Modal title="连接 OpenClaw" wide onClose={onClose}><div className="pairing-layout"><div className="pairing-qr pairing-icon"><LinkOutlined /></div><div className="pairing-copy"><span className="eyebrow">DEVICE AUTHORIZATION</span><h3>从客户端发起连接</h3><p>设备授权必须由持有 Instance ID 私钥的 OpenClaw 客户端发起。网站会核对设备名称、公钥指纹和权限范围。</p><div className="command-line"><code>{command}</code><button aria-label="复制命令" onClick={() => void onCopy(command, "连接命令")} title="复制命令" type="button"><CopyOutlined /></button></div><div className="pairing-checklist"><span><CheckOutlined /> 客户端生成 PKCE 与实例签名密钥证明</span><span><CheckOutlined /> 登录用户核对设备指纹并确认授权</span><span><CheckOutlined /> 客户端本地验证并保存 IBC</span></div></div></div></Modal>;
 }
 
 function ApprovalModal({ agents, busy, request, selectedAgentId, onApprove, onDeny, onSelectAgent, onClose }: { agents: Agent[]; busy: boolean; request: Approval; selectedAgentId: string; onApprove: () => void; onDeny: () => void; onSelectAgent: (value: string) => void; onClose: () => void }) {
   const proposedAgentId = request.proposedAgentId ?? `did:agentid:agt_${request.id.replaceAll("-", "").slice(0, 24)}`;
-  return <Modal secure title="创建 AgentID 并授权设备" onClose={onClose}><div className="approval-modal-heading"><span className="device-icon large"><LaptopOutlined /></span><div><h3>{request.instanceLabel}</h3><p>{request.platform} · 到期 {formatTime(request.expiresAt)}</p></div></div><div className="approval-facts"><div><span>密钥指纹</span><code>{request.publicKeyFingerprint}</code></div><div><span>申请权限</span><strong>{request.scopes.join("、")}</strong></div><div><span>AgentID</span>{request.agentCreationRequested ? <><strong>将创建新的 AgentID</strong><code>{proposedAgentId}</code></> : agents.length && selectedAgentId ? <select aria-label="选择授权 Agent" onChange={(event) => onSelectAgent(event.target.value)} value={selectedAgentId}>{agents.filter((agent) => ["owner", "admin"].includes(agent.role)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select> : <code>{proposedAgentId}</code>}</div></div><p className="phishing-note"><SafetyCertificateOutlined /> {request.agentCreationRequested ? "确认后身份服务会创建此 AgentID，并授权设备使用以上权限。" : "确认后将使用所选 AgentID，并授权设备使用以上权限。"} 最终操作需要 Passkey。</p><div className="modal-actions split"><button className="button button-quiet" disabled={busy} onClick={onDeny} type="button"><CloseOutlined /> 拒绝请求</button><button className="button button-primary" disabled={busy} onClick={onApprove} type="button"><CheckOutlined /> 使用 Passkey 创建并授权</button></div></Modal>;
+  return <Modal secure title="创建 AgentID 并授权设备" onClose={onClose}><div className="approval-modal-heading"><span className="device-icon large"><LaptopOutlined /></span><div><h3>{request.instanceLabel}</h3><p>{request.platform} · 到期 {formatTime(request.expiresAt)}</p></div></div><div className="approval-facts"><div><span>密钥指纹</span><code>{request.publicKeyFingerprint}</code></div><div><span>申请权限</span><strong>{request.scopes.join("、")}</strong></div><div><span>AgentID</span>{request.agentCreationRequested ? <><strong>将创建新的 AgentID</strong><code>{proposedAgentId}</code></> : agents.length && selectedAgentId ? <select aria-label="选择授权 Agent" onChange={(event) => onSelectAgent(event.target.value)} value={selectedAgentId}>{agents.filter((agent) => ["owner", "admin"].includes(agent.role)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select> : <code>{proposedAgentId}</code>}</div></div><p className="phishing-note"><SafetyCertificateOutlined /> {request.agentCreationRequested ? "确认后身份服务会创建此 AgentID，并授权设备使用以上权限。" : "确认后将使用所选 AgentID，并授权设备使用以上权限。"} 当前登录账户将作为授权主体。</p><div className="modal-actions split"><button className="button button-quiet" disabled={busy} onClick={onDeny} type="button"><CloseOutlined /> 拒绝请求</button><button className="button button-primary" disabled={busy} onClick={onApprove} type="button"><CheckOutlined /> 创建并授权</button></div></Modal>;
 }
 
-function RevokeModal({ device, name, onChange, onClose, onConfirm }: { device: Instance; name: string; onChange: (value: string) => void; onClose: () => void; onConfirm: () => void }) {
-  return <Modal danger title="撤销设备授权" onClose={onClose}><div className="danger-callout"><LockOutlined /><p><strong>{device.instanceLabel}</strong> 将立即停止代表当前 Agent 通信。恢复使用必须由客户端重新发起授权。</p></div><label className="field-label" htmlFor="revoke-name">输入设备名称以确认撤销</label><input id="revoke-name" onChange={(event) => onChange(event.target.value)} placeholder={device.instanceLabel} value={name} /><div className="modal-actions"><button className="button button-quiet" onClick={onClose} type="button">保留设备</button><button className="button button-danger" disabled={name !== device.instanceLabel} onClick={onConfirm} type="button">使用 Passkey 确认</button></div></Modal>;
-}
-
-function PasskeyModal({ action, busy, error, enrolled, onCancel, onConfirm, onDevelopmentConfirm }: { action: "approve" | "revoke"; busy: boolean; error: string; enrolled: boolean; onCancel: () => void; onConfirm: () => void; onDevelopmentConfirm: (code: string) => void }) {
-  const title = action === "approve" ? "确认授权此设备" : "确认撤销设备授权";
-  const [code, setCode] = useState("");
-  const [useDevelopment, setUseDevelopment] = useState(false);
-  const confirm = () => useDevelopment ? onDevelopmentConfirm(code) : onConfirm();
-  return <Modal secure title="使用 Passkey 确认" onClose={onCancel}><div className="passkey-prompt"><span className="passkey-icon"><KeyOutlined /></span><div><h3>{title}</h3><p>{useDevelopment ? "开发备用模式：输入任意 6 位数字完成授权确认。" : enrolled ? "浏览器将调用已登记的 Passkey 完成确认。" : "首次确认会先在当前浏览器登记 Passkey，然后继续完成授权。"}</p></div></div>{error ? <div className="surface-error" role="alert">{error}</div> : null}{developmentPasskeyEnabled ? <label className="development-toggle"><input checked={useDevelopment} onChange={(event) => setUseDevelopment(event.target.checked)} type="checkbox" /> 使用开发备用口令</label> : null}{useDevelopment ? <><label className="field-label" htmlFor="dev-passkey">开发备用口令</label><input autoFocus id="dev-passkey" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="任意 6 位数字" value={code} /></> : null}<div className="modal-actions split"><button className="button button-quiet" disabled={busy} onClick={onCancel} type="button">返回</button><button className={action === "approve" ? "button button-primary" : "button button-danger"} disabled={(useDevelopment && code.length !== 6) || busy} onClick={confirm} type="button"><KeyOutlined /> {busy ? "正在确认" : "使用 Passkey 确认"}</button></div></Modal>;
+function RevokeModal({ busy, device, name, onChange, onClose, onConfirm }: { busy: boolean; device: Instance; name: string; onChange: (value: string) => void; onClose: () => void; onConfirm: () => void }) {
+  return <Modal danger title="撤销设备授权" onClose={onClose}><div className="danger-callout"><LockOutlined /><p><strong>{device.instanceLabel}</strong> 将立即停止代表当前 Agent 通信。恢复使用必须由客户端重新发起授权。</p></div><label className="field-label" htmlFor="revoke-name">输入设备名称以确认撤销</label><input id="revoke-name" onChange={(event) => onChange(event.target.value)} placeholder={device.instanceLabel} value={name} /><div className="modal-actions"><button className="button button-quiet" disabled={busy} onClick={onClose} type="button">保留设备</button><button className="button button-danger" disabled={name !== device.instanceLabel || busy} onClick={onConfirm} type="button">撤销设备授权</button></div></Modal>;
 }
 
 function DeviceDrawer({ device, onClose, onCopy, onRevoke }: { device: Instance; onClose: () => void; onCopy: (value: string, label: string) => void; onRevoke: () => void }) {

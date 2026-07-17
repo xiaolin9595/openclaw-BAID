@@ -195,14 +195,6 @@ async function requireUser(request: FastifyRequest, dependencies: AppDependencie
   return (await authenticatedSession(request, dependencies)).user;
 }
 
-async function requireRecentPasskey(request: FastifyRequest, dependencies: AppDependencies): Promise<User> {
-  const authenticated = await authenticatedSession(request, dependencies);
-  if (!authenticated.session.verifiedAt || Date.now() - Date.parse(authenticated.session.verifiedAt) > dependencies.config.passkeyStepUpTtlMs) {
-    throw new AppError(403, "PASSKEY_STEP_UP_REQUIRED", "A recent passkey verification is required before changing an instance binding.");
-  }
-  return authenticated.user;
-}
-
 async function ensureManager(store: Store, agentId: string, userId: string): Promise<void> {
   if (!isManager(await store.getMemberRole(agentId, userId))) throw new AppError(403, "FORBIDDEN", "You cannot manage this Agent.");
 }
@@ -958,7 +950,10 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   });
 
   app.post("/v1/approvals/:id/:action", { config: { rateLimit: { max: dependencies.config.rateLimits.approvals.max, timeWindow: dependencies.config.rateLimits.approvals.timeWindowMs } } }, async (request, reply) => {
-    const user = await requireRecentPasskey(request, dependencies);
+    // For the demo, a verified website login is the approval step. The
+    // device identity, requested scopes, and Agent membership are still
+    // checked before issuing or revoking a binding.
+    const user = await requireUser(request, dependencies);
     const { id, action } = request.params as { id: string; action: string };
     if (action !== "approve" && action !== "deny" && action !== "revoke") throw new AppError(404, "NOT_FOUND", "Approval action was not found.");
     const body = action === "revoke" ? revokeSchema.parse(request.body) : approvalActionSchema.parse(request.body);
@@ -1085,7 +1080,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   });
 
   app.post("/v1/agents/:agentId/instances/:instanceId/revoke", { config: { rateLimit: { max: dependencies.config.rateLimits.approvals.max, timeWindow: dependencies.config.rateLimits.approvals.timeWindowMs } } }, async (request, reply) => {
-    const user = await requireRecentPasskey(request, dependencies);
+    const user = await requireUser(request, dependencies);
     const { agentId, instanceId } = request.params as { agentId: string; instanceId: string };
     const body = revokeSchema.parse(request.body);
     const key = idempotencyHeader(request);

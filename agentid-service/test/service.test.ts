@@ -188,7 +188,7 @@ test("legacy account can bind an email through a verified code", async (t) => {
   assert.equal((json(verifyBinding).user as Record<string, unknown>).email, "legacy-owner@example.com");
 });
 
-test("website session, Passkey step-up, standard device grant, IBC and revocation", async (t) => {
+test("website session, login-based device grant, IBC and revocation", async (t) => {
   const store = new MemoryStore();
   const delivery = new TestMagicLinkDelivery();
   const issuerKey = await loadIssuerKey({ allowDevelopmentGeneration: true });
@@ -331,35 +331,10 @@ test("website session, Passkey step-up, standard device grant, IBC and revocatio
   assert.equal(approval.statusCode, 200);
   assert.equal((json(approval).approval as Record<string, unknown>).userCode, undefined);
 
-  const stepUpRequired = await app.inject({
-    method: "POST",
-    url: `/v1/approvals/${verificationLink.searchParams.get("request_id")}/approve`,
-    headers: websiteHeaders({ cookie: magicCookie, "content-type": "application/json", "idempotency-key": "approve-before-passkey" }),
-    payload: { agentId },
-  });
-  assert.equal(stepUpRequired.statusCode, 403);
-  assert.equal((json(stepUpRequired).error as Record<string, unknown>).code, "PASSKEY_STEP_UP_REQUIRED");
-
-  const registrationOptions = await app.inject({ method: "POST", url: "/v1/auth/webauthn/registration/options", headers: websiteHeaders({ cookie: magicCookie }) });
-  assert.equal(registrationOptions.statusCode, 200);
-  const registration = json(registrationOptions);
-  const registrationChallenge = ((registration.options as Record<string, unknown>).challenge) as string;
-  const registrationVerified = await app.inject({
-    method: "POST",
-    url: "/v1/auth/webauthn/registration/verify",
-    headers: websiteHeaders({ cookie: magicCookie, "content-type": "application/json" }),
-    payload: { challengeId: registration.challengeId, response: { id: "credential-owner", challenge: registrationChallenge } },
-  });
-  assert.equal(registrationVerified.statusCode, 201);
-  const passkeyCookie = cookie(registrationVerified);
-
-  const me = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie: passkeyCookie } });
-  assert.equal((json(me).user as Record<string, unknown>).passkeyEnrolled, true);
-
   const approved = await app.inject({
     method: "POST",
     url: `/v1/approvals/${verificationLink.searchParams.get("request_id")}/approve`,
-    headers: websiteHeaders({ cookie: passkeyCookie, "content-type": "application/json", "idempotency-key": "approve-after-passkey" }),
+    headers: websiteHeaders({ cookie: magicCookie, "content-type": "application/json", "idempotency-key": "approve-after-login" }),
     payload: { agentId },
   });
   assert.equal(approved.statusCode, 200);
@@ -370,7 +345,7 @@ test("website session, Passkey step-up, standard device grant, IBC and revocatio
   const approvalReplay = await app.inject({
     method: "POST",
     url: `/v1/approvals/${verificationLink.searchParams.get("request_id")}/approve`,
-    headers: websiteHeaders({ cookie: passkeyCookie, "content-type": "application/json", "idempotency-key": "approve-after-passkey" }),
+    headers: websiteHeaders({ cookie: magicCookie, "content-type": "application/json", "idempotency-key": "approve-after-login" }),
     payload: { agentId },
   });
   assert.deepEqual(json(approvalReplay), approvedBody);
@@ -378,7 +353,7 @@ test("website session, Passkey step-up, standard device grant, IBC and revocatio
   const approvalConflict = await app.inject({
     method: "POST",
     url: `/v1/approvals/${verificationLink.searchParams.get("request_id")}/approve`,
-    headers: websiteHeaders({ cookie: passkeyCookie, "content-type": "application/json", "idempotency-key": "approve-after-passkey" }),
+    headers: websiteHeaders({ cookie: magicCookie, "content-type": "application/json", "idempotency-key": "approve-after-login" }),
     payload: { agentId, reason: "Different request body" },
   });
   assert.equal(approvalConflict.statusCode, 409);
@@ -427,21 +402,21 @@ test("website session, Passkey step-up, standard device grant, IBC and revocatio
   });
   assert.equal(createDevice.statusCode, 200);
   const createDeviceBody = json(createDevice);
-  const createApproval = await app.inject({ method: "GET", url: `/v1/approvals/${createDeviceBody.request_id}`, headers: { cookie: passkeyCookie } });
+  const createApproval = await app.inject({ method: "GET", url: `/v1/approvals/${createDeviceBody.request_id}`, headers: { cookie: magicCookie } });
   assert.equal(createApproval.statusCode, 200);
   assert.equal((json(createApproval).approval as Record<string, unknown>).agentCreationRequested, true);
   assert.equal((json(createApproval).approval as Record<string, unknown>).agentId, null);
   const createdApproval = await app.inject({
     method: "POST",
     url: `/v1/approvals/${createDeviceBody.request_id}/approve`,
-    headers: websiteHeaders({ cookie: passkeyCookie, "content-type": "application/json", "idempotency-key": "approve-new-agent-1" }),
+    headers: websiteHeaders({ cookie: magicCookie, "content-type": "application/json", "idempotency-key": "approve-new-agent-1" }),
     payload: {},
   });
   assert.equal(createdApproval.statusCode, 200);
   const createdBinding = json(createdApproval).binding as Record<string, unknown>;
   assert.match(String(createdBinding.agentId), /^did:agentid:agt_/);
   assert.notEqual(createdBinding.agentId, agentId);
-  const agentsAfterCreate = await app.inject({ method: "GET", url: "/v1/me/agents", headers: { cookie: passkeyCookie } });
+  const agentsAfterCreate = await app.inject({ method: "GET", url: "/v1/me/agents", headers: { cookie: magicCookie } });
   assert.equal((json(agentsAfterCreate).agents as unknown[]).length, 2);
 
   const renewalChallenge = await app.inject({
@@ -453,26 +428,17 @@ test("website session, Passkey step-up, standard device grant, IBC and revocatio
   assert.equal(renewalChallenge.statusCode, 200);
   assert.equal(typeof (json(renewalChallenge).challenge_id), "string");
 
-  const revokeWithoutStepUp = await app.inject({
-    method: "POST",
-    url: `/v1/approvals/${verificationLink.searchParams.get("request_id")}/revoke`,
-    headers: websiteHeaders({ cookie: magicCookie, "content-type": "application/json", "idempotency-key": "revoke-without-passkey" }),
-    payload: { reason: "This must fail" },
-  });
-  assert.equal(revokeWithoutStepUp.statusCode, 403);
-  assert.equal((json(revokeWithoutStepUp).error as Record<string, unknown>).code, "PASSKEY_STEP_UP_REQUIRED");
-
   const revoked = await app.inject({
     method: "POST",
     url: `/v1/approvals/${verificationLink.searchParams.get("request_id")}/revoke`,
-    headers: websiteHeaders({ cookie: passkeyCookie, "content-type": "application/json", "idempotency-key": "revoke-after-passkey" }),
+    headers: websiteHeaders({ cookie: magicCookie, "content-type": "application/json", "idempotency-key": "revoke-after-login" }),
     payload: { reason: "Device retired" },
   });
   assert.equal(revoked.statusCode, 200);
   assert.equal(((json(revoked).binding as Record<string, unknown>).status), "revoked");
   assert.equal((binding.status), "active");
 
-  const activity = await app.inject({ method: "GET", url: "/v1/activity", headers: { cookie: passkeyCookie } });
+  const activity = await app.inject({ method: "GET", url: "/v1/activity", headers: { cookie: magicCookie } });
   assert.equal(activity.statusCode, 200);
   const latestEvent = (json(activity).activity as Array<Record<string, unknown>>)[0];
   assert.ok(latestEvent);
