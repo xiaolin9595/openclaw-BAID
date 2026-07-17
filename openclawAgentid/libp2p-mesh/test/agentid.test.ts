@@ -231,6 +231,10 @@ test("linkAgentId omits agent_hint when no agent is selected and performs S256 P
   assert.equal(deviceBodies[0].code_challenge_method, "S256");
   assert.match(String(deviceBodies[0].code_challenge), /^[A-Za-z0-9_-]{43}$/);
   assert.equal(deviceBodies[0].scope, "p2p:announce p2p:message");
+  const profileDraft = JSON.parse(String(deviceBodies[0].agent_profile)) as Record<string, unknown>;
+  assert.equal(profileDraft.role, "OpenClaw P2P Agent");
+  assert.equal(profileDraft.language, "OpenClaw / libp2p-mesh");
+  assert.ok((profileDraft.attributes as Array<Record<string, unknown>>).some((attribute) => attribute.value === identity.bindingComponents.platform));
   assert.deepEqual(sleeps, [5000, 5000, 7000]);
   assert.equal(result.binding.agentId, "did:agentid:agt_travel");
   assert.equal(result.binding.instanceId, identity.id);

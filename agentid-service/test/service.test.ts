@@ -396,6 +396,12 @@ test("website session, login-based device grant, IBC and revocation", async (t) 
       instance_public_key: "MCowBQYDK2VwAyEAnew-agent",
       instance_label: "New Agent Instance",
       platform: "darwin",
+      agent_profile: JSON.stringify({
+        summary: "A research assistant running on OpenClaw.",
+        role: "Research assistant",
+        language: "OpenClaw / libp2p-mesh",
+        attributes: [{ key: "skill", label: "Skill", value: "research", kind: "capability" }],
+      }),
       code_challenge: sha256(createVerifier),
       code_challenge_method: "S256",
     }),
@@ -416,6 +422,15 @@ test("website session, login-based device grant, IBC and revocation", async (t) 
   const createdBinding = json(createdApproval).binding as Record<string, unknown>;
   assert.match(String(createdBinding.agentId), /^did:agentid:agt_/);
   assert.notEqual(createdBinding.agentId, agentId);
+  const createdProfileResponse = await app.inject({ method: "GET", url: `/v1/agents/${encodeURIComponent(String(createdBinding.agentId))}/public-profile`, headers: { cookie: magicCookie } });
+  assert.equal(createdProfileResponse.statusCode, 200);
+  const createdProfile = json(createdProfileResponse).profile as Record<string, unknown>;
+  assert.equal(createdProfile.published, false);
+  assert.equal(createdProfile.role, "Research assistant");
+  assert.equal(createdProfile.summary, "A research assistant running on OpenClaw.");
+  assert.deepEqual((createdProfile.attributes as Array<Record<string, unknown>>).map((attribute) => attribute.value), ["p2p:announce", "p2p:message", "research"]);
+  assert.ok((createdProfile.attributes as Array<Record<string, unknown>>).filter((attribute) => attribute.value.startsWith("p2p:")).every((attribute) => attribute.trust === "verified"));
+  assert.equal((createdProfile.attributes as Array<Record<string, unknown>>).find((attribute) => attribute.value === "research")?.trust, "self_declared");
   const agentsAfterCreate = await app.inject({ method: "GET", url: "/v1/me/agents", headers: { cookie: magicCookie } });
   assert.equal((json(agentsAfterCreate).agents as unknown[]).length, 2);
 

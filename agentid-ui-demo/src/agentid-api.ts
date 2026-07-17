@@ -91,6 +91,12 @@ export type Approval = {
   platform: string;
   publicKeyFingerprint: string;
   scopes: string[];
+  agentProfile?: {
+    summary: string;
+    role: string;
+    language: string;
+    attributes: Array<Pick<PublicAttribute, "key" | "label" | "value" | "kind">>;
+  } | null;
   status: "pending" | "approved" | "denied" | "expired" | "exchanged" | string;
   expiresAt: string;
   approvedAt?: string;

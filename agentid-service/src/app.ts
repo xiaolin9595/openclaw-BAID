@@ -9,7 +9,7 @@ import { z, ZodError } from "zod";
 import type { DevelopmentMailbox, MagicLinkDelivery, WebAuthnAdapter } from "./auth.js";
 import { expiryIso, hashPassword, hmacSha256, nowIso, randomEmailLoginCode, randomToken, safeEqual, sha256, verifyPassword, type IssuerKey } from "./crypto.js";
 import type { AppConfig } from "./config.js";
-import { ALLOWED_SCOPES, type Agent, type AgentMember, type AgentPublicConnection, type AgentPublicProfile, type AgentRole, type AuditEvent, type BindingRenewalChallenge, type DeviceAuthorization, type DeviceStatus, type InstanceBinding, type NewAuditEvent, type Scope, type Session, type Store, type User } from "./domain.js";
+import { ALLOWED_SCOPES, type Agent, type AgentMember, type AgentProfileDraft, type AgentPublicConnection, type AgentPublicProfile, type AgentRole, type AuditEvent, type BindingRenewalChallenge, type DeviceAuthorization, type DeviceStatus, type InstanceBinding, type NewAuditEvent, type Scope, type Session, type Store, type User } from "./domain.js";
 import { AppError, assertPresent } from "./errors.js";
 import { logOperationalAlert } from "./alerts.js";
 import { MetricsRegistry } from "./metrics.js";
@@ -30,8 +30,20 @@ const deviceFormSchema = z.object({
   instance_public_key: z.string().trim().min(1).max(4096),
   instance_label: z.string().trim().min(1).max(128),
   platform: z.string().trim().min(1).max(128),
+  agent_profile: z.string().trim().max(16000).optional(),
   code_challenge: z.string().trim().min(43).max(256),
   code_challenge_method: z.literal("S256"),
+});
+const agentProfileDraftSchema = z.object({
+  summary: z.string().trim().max(500),
+  role: z.string().trim().max(120),
+  language: z.string().trim().max(80),
+  attributes: z.array(z.object({
+    key: z.string().trim().min(1).max(80),
+    label: z.string().trim().min(1).max(80),
+    value: z.string().trim().min(1).max(120),
+    kind: z.enum(["capability", "tag", "context"]),
+  })).max(40),
 });
 const tokenFormSchema = z.object({
   grant_type: z.literal("urn:ietf:params:oauth:grant-type:device_code"),
@@ -104,8 +116,31 @@ function publicDirectoryAgent(agent: Agent): Omit<Agent, "ownerId"> {
   return safeAgent;
 }
 
-function defaultPublicProfile(agentId: string, published = false): AgentPublicProfile {
-  return { agentId, summary: "", role: "", language: "", attributes: [], published, connection: { allowDiscovery: false, allowDirectDial: false, peerId: null, multiaddrs: [], relayMultiaddrs: [] }, updatedAt: nowIso() };
+function defaultPublicProfile(agentId: string, published = false, scopes: Scope[] = [], draft: AgentProfileDraft | null = null): AgentPublicProfile {
+  const attributes: AgentPublicProfile["attributes"] = scopes.map((scope) => ({
+    key: scope,
+    label: "通信权限",
+    value: scope,
+    kind: "capability" as const,
+    trust: "verified" as const,
+    visible: true,
+  }));
+  const verifiedKeys = new Set(attributes.map((attribute) => `${attribute.key}:${attribute.value}`));
+  for (const attribute of draft?.attributes ?? []) {
+    const key = `${attribute.key}:${attribute.value}`;
+    if (verifiedKeys.has(key)) continue;
+    attributes.push({ ...attribute, trust: "self_declared", visible: true });
+  }
+  return {
+    agentId,
+    summary: draft?.summary || (scopes.length ? "OpenClaw Agent，支持已授权的 P2P 通信能力。" : ""),
+    role: draft?.role || (scopes.length ? "OpenClaw P2P Agent" : ""),
+    language: draft?.language || (scopes.length ? "OpenClaw / libp2p-mesh" : ""),
+    attributes,
+    published,
+    connection: { allowDiscovery: false, allowDirectDial: false, peerId: null, multiaddrs: [], relayMultiaddrs: [] },
+    updatedAt: nowIso(),
+  };
 }
 
 function managedPublicProfile(profile: AgentPublicProfile): AgentPublicProfile {
@@ -166,6 +201,7 @@ function publicApproval(authorization: DeviceAuthorization, allowedActions: stri
     platform: authorization.platform,
     publicKeyFingerprint: authorization.publicKeyFingerprint,
     requestedScopes: authorization.scopes,
+    agentProfile: authorization.agentProfile,
     status: authorization.status,
     createdAt: authorization.createdAt,
     expiresAt: authorization.expiresAt,
@@ -458,10 +494,18 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (body.client_id !== dependencies.config.clientId) return oauthError(reply, "invalid_client", "Unsupported client_id.");
     if (body.agent_action === "create" && body.agent_hint) return oauthError(reply, "invalid_request", "agent_hint cannot be combined with agent_action=create.");
     if (body.agent_hint && !(await dependencies.store.getAgent(body.agent_hint))) return oauthError(reply, "invalid_request", "agent_hint does not identify an Agent.");
+    let agentProfile: AgentProfileDraft | null = null;
+    if (body.agent_profile) {
+      try {
+        agentProfile = agentProfileDraftSchema.parse(JSON.parse(body.agent_profile));
+      } catch {
+        return oauthError(reply, "invalid_request", "agent_profile is invalid.");
+      }
+    }
     const authorization: DeviceAuthorization = {
       id: randomUUID(), clientId: body.client_id, agentHint: body.agent_hint ?? null, agentCreationRequested: body.agent_action === "create", agentId: null, instanceId: body.instance_id,
       instancePublicKey: body.instance_public_key, publicKeyFingerprint: sha256(body.instance_public_key).slice(0, 16), instanceLabel: body.instance_label,
-      platform: body.platform, scopes: parseScopes(body.scope), codeChallenge: body.code_challenge, deviceCodeHash: sha256(randomToken()),
+      platform: body.platform, scopes: parseScopes(body.scope), agentProfile, codeChallenge: body.code_challenge, deviceCodeHash: sha256(randomToken()),
       pollIntervalSeconds: 5, lastPolledAt: null, status: "pending", decisionReason: null, decidedAt: null, decidedByUserId: null,
       bindingJti: null, exchangedAt: null, createdAt: nowIso(), expiresAt: expiryIso(dependencies.config.deviceAuthorizationTtlMs),
     };
@@ -982,7 +1026,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
           const name = `${authorization.instanceLabel} Agent`.slice(0, 120);
           const agent: Agent = { id: `did:agentid:agt_${authorization.id.replaceAll("-", "").slice(0, 24)}`, name, ownerId: user.id, status: "active", createdAt, updatedAt: createdAt };
           await store.createAgent(agent, user.id);
-          await store.saveAgentPublicProfile(defaultPublicProfile(agent.id));
+          await store.saveAgentPublicProfile(defaultPublicProfile(agent.id, false, authorization.scopes, authorization.agentProfile));
           await store.addAuditEvent(event({ actorUserId: user.id, agentId: agent.id, instanceId: authorization.instanceId, bindingJti: null, action: "agent_created_for_device_authorization", detail: { name } }));
           selectedAgentId = agent.id;
         }

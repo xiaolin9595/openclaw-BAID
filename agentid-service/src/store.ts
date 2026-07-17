@@ -4,6 +4,7 @@ import { AUDIT_GENESIS_HASH, materializeAuditEvent } from "./audit.js";
 import { CURRENT_SCHEMA_MIGRATION } from "./config.js";
 import type {
   Agent,
+  AgentProfileDraft,
   AgentPublicConnection,
   AgentPublicProfile,
   PublicAgentRecord,
@@ -441,6 +442,13 @@ function textArray(row: Row, field: string): string[] {
   return [...value] as string[];
 }
 
+function optionalAgentProfile(row: Row): AgentProfileDraft | null {
+  const value = row.agent_profile;
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error("Database field agent_profile is not an object.");
+  return value as AgentProfileDraft;
+}
+
 function userFromRow(row: Row): User {
   return { id: string(row, "id"), username: string(row, "username"), email: optionalString(row, "email"), passwordHash: optionalString(row, "password_hash"), displayName: string(row, "display_name"), createdAt: timestamp(row, "created_at"), emailVerifiedAt: optionalTimestamp(row, "email_verified_at") };
 }
@@ -484,7 +492,7 @@ function deviceFromRow(row: Row): DeviceAuthorization {
   return {
     id: string(row, "id"), clientId: string(row, "client_id"), agentHint: optionalString(row, "agent_hint"), agentCreationRequested: Boolean(row.agent_creation_requested), agentId: optionalString(row, "agent_id"),
     instanceId: string(row, "instance_id"), instancePublicKey: string(row, "instance_public_key"), publicKeyFingerprint: string(row, "public_key_fingerprint"),
-    instanceLabel: string(row, "instance_label"), platform: string(row, "platform"), scopes: textArray(row, "scopes") as Scope[],
+    instanceLabel: string(row, "instance_label"), platform: string(row, "platform"), scopes: textArray(row, "scopes") as Scope[], agentProfile: optionalAgentProfile(row),
     codeChallenge: string(row, "code_challenge"), deviceCodeHash: string(row, "device_code_hash"),
     pollIntervalSeconds: number(row, "poll_interval_seconds"), lastPolledAt: optionalTimestamp(row, "last_polled_at"), status: string(row, "status") as DeviceStatus,
     decisionReason: optionalString(row, "decision_reason"), decidedAt: optionalTimestamp(row, "decided_at"), decidedByUserId: optionalString(row, "decided_by_user_id"),
@@ -722,8 +730,8 @@ export class PostgresStore implements Store {
   }
 
   async createDeviceAuthorization(authorization: DeviceAuthorization): Promise<void> {
-    await this.query(`INSERT INTO device_authorizations (id, client_id, agent_hint, agent_creation_requested, agent_id, instance_id, instance_public_key, public_key_fingerprint, instance_label, platform, scopes, code_challenge, device_code_hash, poll_interval_seconds, status, created_at, expires_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`, [authorization.id, authorization.clientId, authorization.agentHint, authorization.agentCreationRequested, authorization.agentId, authorization.instanceId, authorization.instancePublicKey, authorization.publicKeyFingerprint, authorization.instanceLabel, authorization.platform, authorization.scopes, authorization.codeChallenge, authorization.deviceCodeHash, authorization.pollIntervalSeconds, authorization.status, authorization.createdAt, authorization.expiresAt]);
+    await this.query(`INSERT INTO device_authorizations (id, client_id, agent_hint, agent_creation_requested, agent_id, instance_id, instance_public_key, public_key_fingerprint, instance_label, platform, scopes, agent_profile, code_challenge, device_code_hash, poll_interval_seconds, status, created_at, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18)`, [authorization.id, authorization.clientId, authorization.agentHint, authorization.agentCreationRequested, authorization.agentId, authorization.instanceId, authorization.instancePublicKey, authorization.publicKeyFingerprint, authorization.instanceLabel, authorization.platform, authorization.scopes, authorization.agentProfile ? JSON.stringify(authorization.agentProfile) : null, authorization.codeChallenge, authorization.deviceCodeHash, authorization.pollIntervalSeconds, authorization.status, authorization.createdAt, authorization.expiresAt]);
   }
 
   async getDeviceAuthorization(id: string): Promise<DeviceAuthorization | null> {
