@@ -334,8 +334,13 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
     setConnectionState("pairing");
     setConnectionError(null);
     try {
-      const ticket = await agentIdApi.getDiscoveryTicket(agentId);
       const bridge = "http://127.0.0.1:8799";
+      const localStatusResponse = await fetch(`${bridge}/v1/local/status`);
+      const localStatus = await localStatusResponse.json().catch(() => ({})) as { agentId?: string | null };
+      if (localStatus.agentId === agentId) {
+        throw new Error("这是当前本机 Agent，无需建立自连接。请返回目录选择其他 Agent。");
+      }
+      const ticket = await agentIdApi.getDiscoveryTicket(agentId);
       const pairResponse = await fetch(`${bridge}/v1/local/pair`, { method: "POST", headers: { "content-type": "application/json" } });
       if (!pairResponse.ok) throw new Error("本机 OpenClaw 连接桥不可用。");
       const pair = await pairResponse.json() as { localSessionToken?: string };
