@@ -26,6 +26,7 @@ export interface AppConfig {
   databaseUrl: string;
   issuerUrl: string;
   webOrigin: string;
+  webBaseUrl: string;
   allowedWebOrigins: Set<string>;
   rpId: string;
   issuerPrivateKeyPem?: string;
@@ -60,6 +61,20 @@ function origin(value: string, name: string): string {
     throw new Error(`${name} must use http or https.`);
   }
   return parsed.origin;
+}
+
+function baseUrl(value: string | undefined, webOrigin: string, name: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value ?? `${webOrigin}/`);
+  } catch {
+    throw new Error(`${name} must be an absolute URL.`);
+  }
+  if (parsed.origin !== webOrigin || parsed.search || parsed.hash) {
+    throw new Error(`${name} must use WEB_ORIGIN and cannot contain a query or hash.`);
+  }
+  const pathname = parsed.pathname.endsWith("/") ? parsed.pathname : `${parsed.pathname}/`;
+  return `${parsed.origin}${pathname}`;
 }
 
 function integer(value: string | undefined, fallback: number, name: string): number {
@@ -98,6 +113,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
   const nodeEnv = rawEnvironment;
   const issuerUrl = origin(environment.ISSUER_URL ?? "http://127.0.0.1:8787", "ISSUER_URL");
   const webOrigin = origin(environment.WEB_ORIGIN ?? "http://127.0.0.1:4173", "WEB_ORIGIN");
+  const webBaseUrl = baseUrl(environment.WEB_BASE_URL, webOrigin, "WEB_BASE_URL");
   const configuredOrigins = (environment.ALLOWED_WEB_ORIGINS ?? webOrigin).split(",").map((entry) => entry.trim()).filter(Boolean);
   const allowedWebOrigins = new Set(configuredOrigins.map((entry) => origin(entry, "ALLOWED_WEB_ORIGINS")));
   allowedWebOrigins.add(webOrigin);
@@ -127,6 +143,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     databaseUrl,
     issuerUrl,
     webOrigin,
+    webBaseUrl,
     allowedWebOrigins,
     rpId: environment.RP_ID ?? new URL(webOrigin).hostname,
     issuerPrivateKeyPem: environment.ISSUER_PRIVATE_KEY_PEM?.replaceAll("\\n", "\n"),

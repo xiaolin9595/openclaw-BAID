@@ -335,7 +335,7 @@ function oauthError(reply: FastifyReply, code: string, description: string, inte
 }
 
 function deviceLink(config: AppConfig, authorization: DeviceAuthorization): string {
-  const url = new URL("/device", config.webOrigin);
+  const url = new URL("device", config.webBaseUrl);
   url.searchParams.set("request_id", authorization.id);
   return url.toString();
 }
@@ -481,7 +481,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     });
     metrics.increment("agentid_oauth_device_authorizations_total", "OAuth device authorization requests.", 1, { result: "created" });
     const verificationUriComplete = deviceLink(dependencies.config, authorization);
-    return reply.code(200).send({ request_id: authorization.id, device_code: deviceCode, verification_uri: new URL("/device", dependencies.config.webOrigin).toString(), verification_uri_complete: verificationUriComplete, expires_in: Math.floor(dependencies.config.deviceAuthorizationTtlMs / 1000), interval: authorization.pollIntervalSeconds });
+    return reply.code(200).send({ request_id: authorization.id, device_code: deviceCode, verification_uri: new URL("device", dependencies.config.webBaseUrl).toString(), verification_uri_complete: verificationUriComplete, expires_in: Math.floor(dependencies.config.deviceAuthorizationTtlMs / 1000), interval: authorization.pollIntervalSeconds });
   });
 
   app.post("/oauth/token", { config: { rateLimit: { max: dependencies.config.rateLimits.oauthToken.max, timeWindow: dependencies.config.rateLimits.oauthToken.timeWindowMs } } }, async (request, reply) => {

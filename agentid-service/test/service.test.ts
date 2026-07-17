@@ -18,6 +18,7 @@ function testConfig(): AppConfig {
     databaseUrl: "postgres://unused/test",
     issuerUrl,
     webOrigin,
+    webBaseUrl: `${webOrigin}/`,
     allowedWebOrigins: new Set([webOrigin]),
     rpId: "127.0.0.1",
     allowDevelopmentKeyGeneration: true,
@@ -95,7 +96,7 @@ test("development authentication is opt-in", async () => {
 });
 
 test("cross-origin web sessions use a secure None cookie", async (t) => {
-  const config = { ...testConfig(), webOrigin: "https://app.example.com", allowedWebOrigins: new Set(["https://app.example.com"]) };
+  const config = { ...testConfig(), webOrigin: "https://app.example.com", webBaseUrl: "https://app.example.com/", allowedWebOrigins: new Set(["https://app.example.com"]) };
   const delivery = new TestMagicLinkDelivery();
   const app = await buildApp({ config, store: new MemoryStore(), issuerKey: await loadIssuerKey({ allowDevelopmentGeneration: true }), magicLinkDelivery: delivery, webAuthn: new TestWebAuthnAdapter() });
   t.after(async () => app.close());
@@ -106,6 +107,18 @@ test("cross-origin web sessions use a secure None cookie", async (t) => {
   assert.equal(consume.statusCode, 200);
   assert.match(String(consume.headers["set-cookie"]), /SameSite=None/);
   assert.match(String(consume.headers["set-cookie"]), /Secure/);
+});
+
+test("device authorization uses the configured Pages base path", async (t) => {
+  const config = { ...testConfig(), webOrigin: "https://xiaolin9595.github.io", webBaseUrl: "https://xiaolin9595.github.io/openclaw-BAID/", allowedWebOrigins: new Set(["https://xiaolin9595.github.io"]) };
+  const app = await buildApp({ config, store: new MemoryStore(), issuerKey: await loadIssuerKey({ allowDevelopmentGeneration: true }), magicLinkDelivery: new TestMagicLinkDelivery(), webAuthn: new TestWebAuthnAdapter() });
+  t.after(async () => app.close());
+
+  const response = await app.inject({ method: "POST", url: "/oauth/device_authorization", headers: { "content-type": "application/x-www-form-urlencoded" }, payload: form({ client_id: "openclaw-libp2p-mesh", instance_id: "pages-test@ed25519.test", instance_public_key: "MCowBQYDK2VwAyEA7a31", instance_label: "Pages test", platform: "darwin", code_challenge: sha256("pages-verifier"), code_challenge_method: "S256" }) });
+  assert.equal(response.statusCode, 200);
+  const body = json(response);
+  assert.equal(new URL(body.verification_uri as string).pathname, "/openclaw-BAID/device");
+  assert.equal(new URL(body.verification_uri_complete as string).pathname, "/openclaw-BAID/device");
 });
 
 test("email-bound account registration, login and password recovery", async (t) => {

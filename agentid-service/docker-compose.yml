@@ -26,6 +26,7 @@ services:
       DATABASE_URL: postgres://agentid:agentid@postgres:5432/agentid
       ISSUER_URL: ${ISSUER_URL:-http://localhost:8787}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:4173}
+      WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:4173/}
       ALLOWED_WEB_ORIGINS: ${ALLOWED_WEB_ORIGINS:-http://localhost:4173}
       RP_ID: ${RP_ID:-localhost}
       METRICS_ALLOWED_IPS: ${METRICS_ALLOWED_IPS:-127.0.0.1,::1}
