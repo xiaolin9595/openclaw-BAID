@@ -1,0 +1,66 @@
+name: Deploy AgentID web
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VITE_AGENTID_API_URL: ${{ vars.AGENTID_API_URL || 'http://119.45.133.252:8787' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check API endpoint
+        run: |
+          if [[ "$VITE_AGENTID_API_URL" == http://* ]]; then
+            echo "Publishing static preview with HTTP API: $VITE_AGENTID_API_URL"
+            echo "Set the AGENTID_API_URL repository variable to an HTTPS API URL for production login."
+          elif [[ "$VITE_AGENTID_API_URL" != https://* ]]; then
+            echo "AGENTID_API_URL must be an HTTPS URL when configured."
+            exit 1
+          fi
+
+      - name: Build static pages
+        run: npm run build:control-plane
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

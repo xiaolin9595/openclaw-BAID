@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: agentid
+      POSTGRES_USER: agentid
+      POSTGRES_PASSWORD: agentid
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentid -d agentid"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  agentid-service:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      ALLOW_DEVELOPMENT_AUTH: "false"
+      HOST: 0.0.0.0
+      PORT: 8787
+      DATABASE_URL: postgres://agentid:agentid@postgres:5432/agentid
+      ISSUER_URL: ${ISSUER_URL:-http://localhost:8787}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:4173}
+      ALLOWED_WEB_ORIGINS: ${ALLOWED_WEB_ORIGINS:-http://localhost:4173}
+      RP_ID: ${RP_ID:-localhost}
+      METRICS_ALLOWED_IPS: ${METRICS_ALLOWED_IPS:-127.0.0.1,::1}
+      ISSUER_PRIVATE_KEY_PATH: /run/secrets/issuer-ed25519.pem
+      USER_ID_HASH_SECRET: ${USER_ID_HASH_SECRET:?set a stable user ID hash secret}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-webhook}
+      MAGIC_LINK_WEBHOOK_URL: ${MAGIC_LINK_WEBHOOK_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+    secrets:
+      - issuer-ed25519.pem
+    command: ["/bin/sh", "-c", "node dist/db/migrate.js && node dist/server.js"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health/ready').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    ports:
+      - "8787:8787"
+
+secrets:
+  issuer-ed25519.pem:
+    file: ./secrets/issuer-ed25519.pem
+
+volumes:
+  postgres-data:

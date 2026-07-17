@@ -1,0 +1,47 @@
+groups:
+  - name: agentid-service
+    rules:
+      - alert: AgentIDServiceNotReady
+        expr: max_over_time(agentid_http_requests_total{route="/health/ready",status_class="5xx"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: AgentID service readiness has failed
+          description: The service has returned readiness failures for five minutes.
+
+      - alert: AgentIDDatabaseErrors
+        expr: increase(agentid_database_errors_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: AgentID persistence errors detected
+          description: Database or audit persistence errors have been observed.
+
+      - alert: AgentIDRenewalFailures
+        expr: increase(agentid_ibc_renewals_total{result="failure"}[15m]) >= 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: IBC renewal failures are increasing
+          description: At least three IBC renewal failures occurred in fifteen minutes.
+
+      - alert: AgentIDAuthFailures
+        expr: increase(agentid_auth_failures_total[10m]) >= 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Authentication failures are elevated
+          description: Authentication or passkey failures have exceeded the configured threshold.
+
+      - alert: AgentIDRateLimitSpike
+        expr: increase(agentid_rate_limited_total[10m]) >= 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Rate limiting activity is elevated
+          description: HTTP 429 responses have exceeded the configured threshold.

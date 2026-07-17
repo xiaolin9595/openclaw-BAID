@@ -1,0 +1,51 @@
+ffmpeg version 8.1.1 Copyright (c) 2000-2026 the FFmpeg developers
+  built with Apple clang version 17.0.0 (clang-1700.6.4.2)
+  configuration: --prefix=/opt/homebrew/Cellar/ffmpeg/8.1.1 --enable-shared --enable-pthreads --enable-version3 --cc=clang --host-cflags= --host-ldflags= --enable-ffplay --enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264 --enable-libmp3lame --enable-libdav1d --enable-libvmaf --enable-libvpx --enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox --enable-neon
+  libavutil      60. 26.101 / 60. 26.101
+  libavcodec     62. 28.101 / 62. 28.101
+  libavformat    62. 12.101 / 62. 12.101
+  libavdevice    62.  3.101 / 62.  3.101
+  libavfilter    11. 14.101 / 11. 14.101
+  libswscale      9.  5.101 /  9.  5.101
+  libswresample   6.  3.101 /  6.  3.101
+Input #0, image2, from '/Users/lin/Downloads/AgentIDDemo/email-registration-video/frame-%03d.jpg':
+  Duration: 00:00:12.00, start: 0.000000, bitrate: N/A
+  Stream #0:0: Video: mjpeg (Baseline), yuvj420p(pc, bt470bg/unknown/unknown), 655x817 [SAR 1:1 DAR 655:817], 0.50 fps, 0.50 tbr, 0.50 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (mjpeg (native) -> h264 (libx264))
+Press [q] to stop, [?] for help
+[swscaler @ 0x140008000] deprecated pixel format used, make sure you did set range correctly
+[libx264 @ 0x13df06b90] using SAR=2469/2468
+[libx264 @ 0x13df06b90] using cpu capabilities: ARMv8 NEON DotProd I8MM
+[libx264 @ 0x13df06b90] profile High, level 3.1, 4:2:0, 8-bit
+[libx264 @ 0x13df06b90] 264 - core 165 r3222 b35605a - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=3 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=7 psy=1 psy_rd=1.00:0.00 mixed_ref=1 me_range=16 chroma_me=1 trellis=1 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=-2 threads=15 lookahead_threads=2 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=2 keyint=250 keyint_min=1 scenecut=40 intra_refresh=0 rc_lookahead=40 rc=crf mbtree=1 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to '/Users/lin/Downloads/AgentIDDemo/email-registration-video/email-registration-demo.mp4':
+  Metadata:
+    encoder         : Lavf62.12.101
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(pc, bt470bg/unknown/unknown, progressive), 1280x720 [SAR 471600:471409 DAR 838400:471409], q=2-31, 0.50 fps, 16384 tbn
+    Metadata:
+      encoder         : Lavc62.28.101 libx264
+    Side data:
+      CPB properties: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+[vf#0:0 @ 0x13e80aa00] Reconfiguring filter graph because video parameters changed to yuvj420p(pc, bt470bg), 640x798, unspecified alph
+[swscaler @ 0x140378000] deprecated pixel format used, make sure you did set range correctly
+[swscaler @ 0x120008000] deprecated pixel format used, make sure you did set range correctly
+[vf#0:0 @ 0x13e80aa00] Reconfiguring filter graph because video parameters changed to yuvj420p(pc, bt470bg), 655x817, unspecified alph
+[swscaler @ 0x130868000] deprecated pixel format used, make sure you did set range correctly
+[swscaler @ 0x110f98000] deprecated pixel format used, make sure you did set range correctly
+[mp4 @ 0x13df05640] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 0x13f104080] video:97KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.927606%
+frame=    6 fps=0.0 q=-1.0 Lsize=      98KiB time=00:00:08.00 bitrate= 100.1kbits/s speed= 179x elapsed=0:00:00.04    
+[libx264 @ 0x13df06b90] frame I:2     Avg QP: 4.44  size: 18618
+[libx264 @ 0x13df06b90] frame P:4     Avg QP:12.17  size: 15314
+[libx264 @ 0x13df06b90] mb I  I16..4: 87.8%  4.1%  8.2%
+[libx264 @ 0x13df06b90] mb P  I16..4: 16.7%  5.0%  5.5%  P16..4:  2.3%  0.8%  0.3%  0.0%  0.0%    skip:69.3%
+[libx264 @ 0x13df06b90] 8x8 transform intra:9.1% inter:15.5%
+[libx264 @ 0x13df06b90] coded y,uvDC,uvAC intra: 10.7% 9.2% 5.9% inter: 2.1% 1.3% 0.4%
+[libx264 @ 0x13df06b90] i16 v,h,dc,p: 78% 19%  2%  0%
+[libx264 @ 0x13df06b90] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 28% 44% 24%  0%  0%  0%  1%  0%  1%
+[libx264 @ 0x13df06b90] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 23% 38% 20%  2%  3%  3%  4%  3%  5%
+[libx264 @ 0x13df06b90] i8c dc,h,v,p: 72% 20%  8%  0%
+[libx264 @ 0x13df06b90] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x13df06b90] ref P L0: 87.8%  4.1%  7.0%  1.1%
+[libx264 @ 0x13df06b90] kb/s:65.66

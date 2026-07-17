@@ -1,0 +1,35 @@
+# Local repositories and dependency trees
+**/.git/
+**/node_modules/
+
+# Environment files and local credentials
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+
+# Local services, databases, caches, and browser state
+.demo/
+**/.playwright-cli/
+**/data/
+**/output/
+**/playwright-report/
+**/test-results/
+**/.worktrees/
+
+# Generated build output; build from source in CI
+**/dist/
+
+# Local recordings and temporary media
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.png
+*.jpg
+*.jpeg
+*.zip
+*.pptx
+*.pdf
+.DS_Store

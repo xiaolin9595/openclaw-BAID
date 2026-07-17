@@ -1,0 +1,983 @@
+# libp2p-mesh
+
+P2P mesh network plugin for OpenClaw. Enables direct peer-to-peer communication between OpenClaw instances using libp2p — no central server required.
+
+## Features
+
+- **LAN Discovery** — Auto-discovers peers on the same local network via mDNS (Bonjour/Avahi)
+- **Direct Messaging** — Send messages directly to another peer by its Peer ID
+- **Broadcast** — Publish messages to a shared topic, flood-fill forwarded across the mesh
+- **Bootstrap Entries** — Optional static bootstrap peer list for non-LAN scenarios
+- **WebSocket Transport** — Optional WebSocket support for NAT/firewall-friendly connections
+- **NAT Traversal** — Built-in AutoNAT + UPnP + Circuit Relay v2 + DCUtR for peers behind home routers / firewalls
+- **User Public Attributes** — Announce public tags and structured profile attributes so agents can dry-run and send to locally discovered instances by attribute
+
+## Requirements
+
+- OpenClaw >= 2026.3.24
+- Node.js >= 22
+- For LAN discovery: both peers must be on the same local network (same WiFi / Ethernet segment)
+
+## Installation
+
+### Method 1: Via OpenClaw CLI (Recommended)
+
+```bash
+openclaw plugins install libp2p-mesh
+```
+
+### Method 2: Manual (npm)
+
+如果无法通过 OpenClaw CLI 安装，可以手动安装到 managed npm root：
+
+```bash
+cd ~/.openclaw/npm
+npm install libp2p-mesh
+```
+
+然后刷新插件注册表：
+
+```bash
+openclaw plugins registry --refresh
+```
+
+The published npm package includes compiled JavaScript under `dist/`, so OpenClaw and acpx can load it directly.
+
+## Automatic setup
+
+After installation, `libp2p-mesh` automatically:
+
+- installs or updates its managed prompt block in `~/.openclaw/workspace/AGENTS.md`;
+- uses default network settings for mDNS discovery, NAT traversal, DHT, and delivery ACK timeout when those fields are not explicitly configured.
+
+You no longer need to run `openclaw libp2p-mesh prompt install` or `openclaw libp2p-mesh setup` for the default setup path.
+Restart the gateway after installing or updating the plugin:
+
+```bash
+openclaw gateway restart
+```
+
+Use `openclaw libp2p-mesh setup` only when you need advanced network settings such as bootstrap nodes, relay nodes, or public announce addresses.
+Use `openclaw libp2p-mesh prompt install` only as a manual repair command if the managed AGENTS.md block was removed.
+
+The default generated config shape is:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "enabled": true,
+        "config": {
+          "deliveryAckTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+## 安装后配置流程
+
+默认安装路径会自动完成基础配置，不需要手动打开 `openclaw.json`。
+
+### 1. 安装或更新插件后重启 gateway
+
+```bash
+openclaw plugins update libp2p-mesh@latest
+```
+
+如果是首次安装，也可以使用：
+
+```bash
+openclaw plugins install libp2p-mesh
+```
+
+安装或更新后，插件会自动安装或更新 `~/.openclaw/workspace/AGENTS.md` 中由 `libp2p-mesh` 管理的提示词区块，并在未显式配置时使用 mDNS、NAT traversal、DHT 和 delivery ACK timeout 的默认网络设置。
+
+```bash
+openclaw gateway restart
+```
+
+### 2. 高级网络或入站目标配置
+
+只有需要高级网络设置或入站投递目标时才运行配置向导：
+
+```bash
+openclaw libp2p-mesh setup
+```
+
+这个向导会写入 `plugins.entries["libp2p-mesh"].config`，不会写入 `channels["libp2p-mesh"]`。
+
+向导会把网络配置和入站投递分开处理。网络配置只决定当前节点如何发现或连接其他节点：
+
+- 使用默认局域网发现。
+- 添加 bootstrap / relay 地址用于跨网络连接。
+- 将当前机器配置为公网 relay 节点。
+
+入站投递配置决定收到 P2P 消息后显示到哪里：
+
+- 从现有 channels 同步。
+- 手动添加一个 target。
+- 不把 P2P 消息投递到本地 channel。
+- 暂时保持不变。
+
+从现有 channels 同步时，某个 channel 的 target 可以直接留空，表示跳过该 channel。
+
+入站目标示例：
+
+```json
+{
+  "id": "feishu-main",
+  "channel": "feishu",
+  "target": "user:ou_xxx"
+}
+```
+
+QQ 单聊示例：
+
+```json
+{
+  "id": "qqbot-main",
+  "channel": "qqbot",
+  "target": "user:<senderId>"
+}
+```
+
+其中 `<senderId>` 可以从 QQ channel 日志里的 `senderId` 取得。
+
+### 3. 手动修复 Agent 提示词
+
+默认安装路径会自动维护提示词区块。只有这个区块被手动删除或需要修复时，才运行：
+
+```bash
+openclaw libp2p-mesh prompt install
+```
+
+该命令不会覆盖整个 `~/.openclaw/workspace/AGENTS.md` 文件，只维护下面两个 marker 之间的区块：
+
+```md
+<!-- libp2p-mesh:prompt:start -->
+# P2P 中继助手规则
+...
+<!-- libp2p-mesh:prompt:end -->
+```
+
+如果区块已经存在，命令会询问是否更新到插件内置的最新版。
+
+### 4. 可选：配置用户公开属性
+
+```bash
+openclaw libp2p-mesh profile
+```
+
+`USER.md` 中的公开 tag 由 gateway 使用 OpenClaw 已配置的 agent/API 模型异步提取，不会写回 `USER.md`。初始 announce 或日志可能先不携带属性；等待后续完整 `instance-announce` 快照发出后，再按属性发送或排查匹配结果。用户手动新增的结构化属性会保存到：
+
+```text
+~/.openclaw/libp2p/user-profile.json
+```
+
+例如：
+
+```json
+{
+  "kind": "structured",
+  "key": "group",
+  "value": "实验室",
+  "label": "实验室",
+  "source": "profile"
+}
+```
+
+之后按属性发送时使用 selector：
+
+```text
+group=实验室
+tag:P2P
+#P2P
+```
+
+`selector` 是发送工具调用时的临时匹配条件，不需要写入配置文件。
+
+### 5. 可选：配置 announce 日志级别
+
+```bash
+openclaw libp2p-mesh debug
+```
+
+推荐保持默认 `summary`。如果排查发现、属性或地址广播问题，可以临时切到 `payload` 查看完整 announce JSON；排查结束后再切回 `summary` 或 `off`。
+
+### 6. 可选：配置远端实例本地标签
+
+```bash
+openclaw libp2p-mesh labels
+```
+
+Labels are private local notes for remote instances you have already discovered. Use them when you want your own grouping to drive sends without asking the remote user to publish that attribute.
+
+### 7. 重启或启动 gateway
+
+安装、更新或手动修改配置后，重启 gateway 让配置和提示词生效：
+
+```bash
+openclaw gateway restart
+```
+
+或者停止后重新运行：
+
+```bash
+openclaw gateway
+```
+
+`profile` 保存后，如果 gateway 正在运行，会自动刷新并重新广播公开属性；只有 gateway 没有运行时，才需要启动或重启后生效。
+
+启动后可以观察日志：
+
+```text
+[libp2p-mesh] Sent instance announce ... attrs=2
+[libp2p-mesh] Received instance announce ... changed=true
+```
+
+其中 `attrs` 是本次 announce 中携带的用户公开属性数量。
+
+## Configuration
+
+The default setup path needs no manual configuration. When `plugins.entries["libp2p-mesh"].config` omits network fields, the plugin uses mDNS discovery, NAT traversal, DHT, and the default delivery ACK timeout automatically.
+
+Use the interactive setup command for advanced network settings and later edits:
+
+```bash
+openclaw libp2p-mesh setup
+```
+
+The wizard enables the plugin when needed and writes `plugins.entries["libp2p-mesh"].config`. On later runs, it edits the existing `libp2p-mesh` entry instead of replacing it blindly. Network discovery is automatic: mDNS, DHT, NAT traversal, relay transport, and hole punching are enabled by default. Network setup only adds optional bootstrap/relay entry addresses or public relay-node parameters; inbound delivery chooses where received P2P messages should appear. After each edit action, the wizard previews the final JSON and only writes after you confirm. When syncing from existing channels, leave a target empty to skip that channel.
+
+The wizard uses OpenClaw's config writer, so the actual file is your normal OpenClaw config path, usually `~/.openclaw/openclaw.json`. You do not need to manually edit `openclaw.json`, and the wizard does not create `channels["libp2p-mesh"]`.
+
+Restart the gateway after applying changes:
+
+```bash
+openclaw gateway restart
+```
+
+### Minimal LAN Setup (Default)
+
+For two computers on the same WiFi or Ethernet segment, no setup wizard is required. The plugin behaves as if the following defaults were present:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "enabled": true,
+        "config": {
+          "deliveryAckTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+This is sufficient for two computers on the same WiFi to discover each other. The runtime still enables mDNS and DHT automatically even when these fields are not written to `openclaw.json`.
+
+### With Static Port (Optional)
+
+By default, the node picks a random TCP port. To use a fixed port:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "enabled": true,
+        "config": {
+          "listenAddrs": ["/ip4/0.0.0.0/tcp/4001"],
+          "deliveryAckTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+### With Bootstrap Nodes (Cross-Network)
+
+If peers are on different networks, run the setup wizard and add bootstrap and optional relay multiaddrs. These addresses are entry points; they do not replace LAN discovery or DHT. The address prompts can be left empty if you do not have an entry node yet.
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "enabled": true,
+        "config": {
+          "bootstrapList": [
+            "/ip4/203.0.113.10/tcp/4001/p2p/12D3KooW..."
+          ],
+          "relayList": [
+            "/ip4/203.0.113.10/tcp/4001/p2p/12D3KooW..."
+          ],
+          "enableNATTraversal": true,
+          "deliveryAckTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+### Multiple Inbound Targets
+
+Inbound delivery is owned by the receiving OpenClaw instance. In the setup wizard, choose where received P2P messages should appear: sync from existing channels, add a target manually, disable local-channel delivery, or leave the current setting unchanged. When syncing from existing channels, leave a target empty to skip that channel. The sender still sends to the receiver's peer ID or instance ID; the receiver decides which local channels display the incoming message.
+
+Example wizard output with two targets:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "enabled": true,
+        "config": {
+          "inboundTargets": [
+            {
+              "id": "feishu-main",
+              "channel": "feishu",
+              "target": "user:ou_xxx"
+            },
+            {
+              "id": "telegram-main",
+              "channel": "telegram",
+              "target": "chat:123456"
+            }
+          ],
+          "deliveryAckTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+If `inboundTargets` is an empty array, inbound delivery is disabled. If `inboundTargets` is omitted, the plugin keeps any existing inbound behavior unchanged. When `inboundTargets` is present, it overrides legacy `inboundChannel`/`inboundTarget`.
+
+### AgentID Instance Binding
+
+AgentID binds the existing Ed25519 `InstanceIdentity` to an authorized Agent. The binding is a compact Ed25519 JWS (`instanceBinding`) that is carried with `agentId` in every newly signed P2P message. The message signature covers both fields, the instance public key, and the message envelope.
+
+Configure production issuer trust explicitly. A received claim never adds an issuer to this allowlist:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "config": {
+          "agentId": {
+            "issuer": "https://agentid.example.com",
+            "trustedIssuers": ["https://agentid.example.com"],
+            "mode": "strict",
+            "cache": { "jwksTtlMs": 300000 },
+            "revocationCacheMaxAgeSeconds": 86400
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Link the current instance through device authorization:
+
+```bash
+openclaw libp2p-mesh agentid link
+openclaw libp2p-mesh agentid link --create-agent
+openclaw libp2p-mesh agentid link --agent did:agentid:agt_travel
+openclaw libp2p-mesh agentid status
+openclaw libp2p-mesh agentid refresh
+openclaw libp2p-mesh agentid unlink
+```
+
+With no `--agent`, the client omits `agent_hint` and the approval website selects an Agent the user is authorized to link. `--create-agent` sends an explicit `agent_action=create` request; the website then displays the server-proposed new AgentID and cannot select an existing Agent. The identity service creates the canonical AgentID during approval, and OpenClaw verifies it from the returned IBC. `--agent` and `--create-agent` are mutually exclusive. The website validates the device name, public-key fingerprint, requested scopes, and Passkey confirmation; no short code is exchanged. `--issuer` is restricted to an explicit loopback HTTP development issuer; production linking uses configured `agentId.issuer`. A successful link writes a restricted local file at `~/.openclaw/libp2p/agentid-binding.json` (or `$OPENCLAW_STATE_DIR/libp2p/agentid-binding.json`) using atomic replacement and mode `0600`. `unlink` only removes the local file; revoke the instance at the issuer separately when required.
+
+`mode: "compat"` is the default and permits legacy peers without an `instanceBinding`; unbound outbound messages retain the legacy signature payload for two-way compatibility, while any presented binding must still be valid. `mode: "strict"` rejects a missing, malformed, expired, untrusted, or mismatched binding, including bindings whose `instance_id` or `instance_public_key` does not match the signed message. JWKS are fetched only from configured issuers and cached in memory for `cache.jwksTtlMs` (five minutes by default).
+
+`agentid refresh` checks the issuer status and automatically renews a binding within 30 days of expiry by signing a one-time challenge with the local InstanceIdentity private key. Startup performs the same check and retains a still-valid local binding when the issuer is temporarily unreachable.
+
+### Public Agent discovery and local connection
+
+The public Agent directory can hand a short-lived Discovery Ticket to a local OpenClaw gateway. When `agentId.localBridge.enabled` is enabled, the gateway listens on loopback only (default `http://127.0.0.1:8799`) and the public Agent detail page can request a local dial without receiving the Instance private key.
+
+```bash
+openclaw libp2p-mesh agentid discover --query "translation" --capability text-generation
+openclaw libp2p-mesh agentid connect --agent did:agentid:agt_example --wait
+openclaw libp2p-mesh agentid connections
+openclaw libp2p-mesh agentid disconnect --agent did:agentid:agt_example
+```
+
+The bridge validates the issuer, audience, expiry, AgentID and target PeerID in the Discovery Ticket before dialing. A successful dial is not itself trust: the normal libp2p announce and IBC verification path must still succeed before the target is treated as a verified Agent connection. The bridge is a local Demo integration and should be protected by explicit terminal/UI confirmation before production use.
+
+For the local Demo, open `http://127.0.0.1:8799/` to use the OpenClaw-provided discovery page. This page queries the AgentID public directory through the local gateway, then asks OpenClaw to obtain and verify the short-lived Discovery Ticket and dial the selected Agent. The page does not expose the full Ticket, IBC, private key, or local bridge token. OpenClaw Control logs show the corresponding directory query, Ticket verification, and dial result.
+
+### Full Configuration Reference
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `discovery` | `string` | legacy-compatible | Legacy hint. New setup does not write this field; runtime composes discovery from mDNS, DHT, and optional entry lists. |
+| `listenAddrs` | `string[]` | `["/ip4/0.0.0.0/tcp/0"]` | libp2p listen multiaddrs |
+| `bootstrapList` | `string[]` | `[]` | Optional static bootstrap peer multiaddrs. Non-empty values add bootstrap discovery without disabling mDNS or DHT. |
+| `enableWebSocket` | `boolean` | `false` | Enable WebSocket transport for browser/NAT compatibility |
+| `meshTopic` | `string` | `"openclaw-mesh"` | Default broadcast topic |
+| `enableAgentSync` | `boolean` | `true` | Enable agent state synchronization over the mesh |
+| `enableNATTraversal` | `boolean` | `true` | Master switch for identify + AutoNAT + UPnP + Circuit Relay v2 + DCUtR |
+| `enableMDNS` | `boolean` | `true` | Enable mDNS LAN peer discovery |
+| `enableIdentify` | `boolean` | `true` | libp2p identify protocol (required by AutoNAT and DCUtR) |
+| `enableAutoNAT` | `boolean` | `true` | AutoNAT — detect whether this node is publicly reachable |
+| `enableUPnP` | `boolean` | `true` | Attempt UPnP/PMP port mapping on the local gateway |
+| `enableCircuitRelay` | `boolean` | `true` | Dial peers via /p2p-circuit relay addresses |
+| `enableCircuitRelayServer` | `boolean` | `false` | Act as a Circuit Relay v2 server (only enable on a public node) |
+| `enableDCUtR` | `boolean` | `true` | Hole-punching: upgrade a relayed connection to a direct one |
+| `enableDHT` | `boolean` | `true` | Enable DHT for WAN peer discovery and the pubkey registry |
+| `relayList` | `string[]` | `[]` | Multiaddrs of relays to reserve a slot on |
+| `discoverRelays` | `number` | `0` | Auto-discover this many relays via content routing |
+| `announceAddrs` | `string[]` | `[]` | Extra multiaddrs to announce on top of auto-detected ones |
+| `announceLogDetail` | `"off" \| "summary" \| "payload"` | `"summary"` | Controls instance announce logging. `summary` logs peer, instance, address count, and attribute count; `payload` also logs the full announce JSON; `off` disables only the new announce summary/payload logs and keeps legacy/basic info logs. |
+| `agentId.issuer` | `string` | `undefined` | Configured issuer used by production `agentid link` and included in the local trust roots. |
+| `agentId.trustedIssuers` | `string[]` | `[]` | Explicit allowlist for remote `instanceBinding` JWT issuers. |
+| `agentId.mode` | `"compat" \| "strict"` | `"compat"` | Compatibility accepts legacy no-binding peers; strict requires a valid bound identity on every message. |
+| `agentId.cache.jwksTtlMs` | `number` | `300000` | In-memory trusted JWKS cache duration; `0` disables caching. |
+| `agentId.revocationCacheMaxAgeSeconds` | `number` | `86400` | Maximum cached IBC binding-status age, capped at 24 hours; revoked bindings are rejected. |
+| `inboundChannel` | `string` | `undefined` | OpenClaw channel used to display inbound P2P user messages, for example `"feishu"` |
+| `inboundTarget` | `string` | `undefined` | OpenClaw channel target for inbound P2P messages, for example `user:ou_xxx` or `chat:oc_xxx` |
+| `inboundTargets` | `array` | `undefined` | Optional list of receiver-owned channel targets for inbound P2P user messages. When present, it overrides `inboundChannel`/`inboundTarget`; an empty array disables inbound delivery. |
+| `deliveryAckTimeoutMs` | `number` | `15000` | Timeout for waiting on remote channel delivery ACKs |
+
+### Announce Startup and Logging
+
+During gateway startup, `libp2p-mesh` registers the instance router handlers and direct/broadcast inbound handlers before starting the mesh node. This makes early `instance-announce` messages observable as soon as peers connect, instead of waiting until after mesh startup has already completed.
+
+Instance announce logs are controlled by `plugins.entries["libp2p-mesh"].config.announceLogDetail`:
+
+- `summary` is the default. It logs send/receive direction, peer ID, instance ID, multiaddr count, and public attribute count. It does not print the full announce JSON.
+- `off` disables the new announce summary and payload logs. It still keeps legacy/basic info logs such as sent announce lines and instance mapping updates, along with warnings and errors.
+- `payload` logs the same summary plus the full announce JSON at debug level.
+
+Use the debug command to inspect or change this value:
+
+```bash
+openclaw libp2p-mesh debug
+```
+
+Full payload logging is intended for short-lived troubleshooting only. Announce payloads can include `userPublicAttributes`, peer multiaddrs, the instance pubkey, and instance identity fields. After changing the setting, restart the gateway for the new logging level to take effect:
+
+```bash
+openclaw gateway restart
+```
+
+## NAT Traversal
+
+When both peers have a routable address (same LAN, public IPs, or working port-forwarding) no extra setup is needed. The defaults above kick in automatically:
+
+- **UPnP** asks your home router to open a port for libp2p TCP.
+- **AutoNAT** asks peers to verify whether you're reachable from the outside.
+- If you're not directly reachable, **Circuit Relay v2** lets another peer (the "relay") forward traffic on your behalf. The relay only sees encrypted bytes — Noise still terminates end-to-end at the original peers.
+- Once a relayed connection is established, **DCUtR** tries to upgrade it to a direct connection via simultaneous TCP open (hole punching). This works for most home NATs (full-cone, restricted-cone, port-restricted) but not symmetric NATs (CGNAT, some carrier networks).
+
+### Behind a NAT — minimal config
+
+You need at least one relay node with a public IP. Set it in `relayList`:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "enabled": true,
+        "config": {
+          "bootstrapList": [
+            "/ip4/<RELAY-IP>/tcp/4001/p2p/<RELAY-PEER-ID>"
+          ],
+          "relayList": [
+            "/ip4/<RELAY-IP>/tcp/4001/p2p/<RELAY-PEER-ID>"
+          ],
+          "enableNATTraversal": true,
+          "deliveryAckTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+After start-up you should see your node listening on a `/p2p-circuit` address — that's how remote peers will reach you.
+
+### Running your own relay on a public VM
+
+Add `enableCircuitRelayServer: true` to your config and announce the public address so other peers can dial you:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "enabled": true,
+        "config": {
+          "listenAddrs": ["/ip4/0.0.0.0/tcp/4001"],
+          "announceAddrs": ["/ip4/<PUBLIC-IP>/tcp/4001"],
+          "enableNATTraversal": true,
+          "enableCircuitRelayServer": true,
+          "deliveryAckTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+> Detailed walkthrough including how to rent a cloud VM is in `../TESTING_NAT.md`.
+
+## Usage: Two Computers on the Same LAN
+
+### Step 1 — Start both gateways
+
+**Computer A** (e.g. your desktop):
+```bash
+openclaw gateway run
+```
+
+**Computer B** (e.g. your laptop or a friend's machine):
+```bash
+openclaw gateway run
+```
+
+Wait ~5–10 seconds for mDNS discovery. You should see in the logs:
+```
+[libp2p-mesh] Peer connected: 12D3KooW...
+```
+
+### Step 2 — Find your Peer ID
+
+On each computer:
+```bash
+openclaw channels status --probe
+```
+
+Look for the `libp2p-mesh` channel section — your Peer ID is displayed there. It looks like:
+```
+12D3KooWRYyHaWzL8n7i5Z8zZ8Z8Z8Z8Z8Z8Z8Z8Z8Z8Z8
+```
+
+Alternatively, check the gateway startup log:
+```
+[libp2p-mesh] Node started. Peer ID: 12D3KooW...
+```
+
+### Step 3 — Send a message
+
+**From Computer A to Computer B:**
+```bash
+openclaw message send libp2p-mesh <COMPUTER-B-PEER-ID> "Hello from A!"
+```
+
+**From Computer B to Computer A:**
+```bash
+openclaw message send libp2p-mesh <COMPUTER-A-PEER-ID> "Hello from B!"
+```
+
+### Step 4 — Verify receipt
+
+Check the gateway logs on the receiving machine. You should see:
+```
+[libp2p-mesh] Direct message from <sender-peer-id>: Hello from A!
+```
+
+## Sending by OpenClaw Instance ID
+
+When two gateways connect, `libp2p-mesh` exchanges instance route announcements and automatically writes:
+
+```text
+~/.openclaw/libp2p/instance-peer.json
+```
+
+When `OPENCLAW_STATE_DIR` is set, the file is written to:
+
+```text
+$OPENCLAW_STATE_DIR/libp2p/instance-peer.json
+```
+
+Users do not configure this file path. It is plugin-managed state.
+
+For inbound display, run the setup wizard on the receiving instance and sync from configured channels:
+
+```bash
+openclaw libp2p-mesh setup
+```
+
+The wizard edits `plugins.entries["libp2p-mesh"].config` and can sync from configured channels, add, edit, remove, or disable inbound delivery targets. Existing `inboundTargets` are preserved during sync; newly added channels are only prompted once for their `target`. You do not need to manually edit `openclaw.json`.
+
+Example result for a single Feishu target:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "enabled": true,
+        "config": {
+          "inboundTargets": [
+            {
+              "id": "feishu-main",
+              "channel": "feishu",
+              "target": "user:ou_xxx"
+            }
+          ],
+          "deliveryAckTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+### Multi-channel inbound delivery
+
+The sender still calls `p2p_send_instance_message({ "instanceId": "...", "message": "..." })`.
+The receiver chooses where inbound P2P messages appear:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "libp2p-mesh": {
+        "enabled": true,
+        "config": {
+          "inboundTargets": [
+            {
+              "id": "feishu-main",
+              "channel": "feishu",
+              "target": "user:ou_xxx"
+            },
+            {
+              "id": "telegram-main",
+              "channel": "telegram",
+              "target": "chat:123456"
+            }
+          ],
+          "deliveryAckTimeoutMs": 15000
+        }
+      }
+    }
+  }
+}
+```
+
+If `inboundTargets` is present, it is used instead of `inboundChannel`/`inboundTarget`. The sync action in the wizard only appends missing channels and does not delete or overwrite existing targets.
+The sender receives per-target delivery status in the tool result.
+
+The OpenClaw agent should prefer:
+
+```text
+p2p_send_instance_message({ "instanceId": "<target-instance-id>", "message": "今晚出来吃饭" })
+```
+
+The sender reports success only after the remote OpenClaw instance forwards the message to its configured inbound channel and returns a delivery ACK.
+
+Tools are not configured in `openclaw.json`; they are registered automatically by the plugin through `api.registerTool()`.
+
+### User public attributes
+
+`libp2p-mesh` can announce user public attributes with instance route announcements. These attributes help agents find matching OpenClaw instances after those instances have already been discovered through the mesh.
+
+There are two public sources:
+
+- `USER.md` tags are produced asynchronously by the gateway. The gateway uses the OpenClaw-configured agent/API model to extract tags from `USER.md` without editing the file.
+- `user-profile.json` stores manually managed structured attributes such as group, project, role, skill, or a custom key.
+
+The initial base `instance-announce` may omit `userPublicAttributes`. After the gateway extracts `USER.md` tags and merges `user-profile.json`, it rebroadcasts a full `instance-announce` snapshot. If extraction is unavailable, `USER.md` tags are skipped; profile attributes still broadcast.
+
+By default, `USER.md` is read from:
+
+```text
+~/.openclaw/workspace/USER.md
+```
+
+When `OPENCLAW_STATE_DIR` is set, the plugin reads:
+
+```text
+$OPENCLAW_STATE_DIR/workspace/USER.md
+```
+
+Run the profile wizard to manage structured attributes:
+
+```bash
+openclaw libp2p-mesh profile
+```
+
+The wizard previews read-only `USER.md` tags and lets you add, edit, or remove only structured profile attributes. Tags extracted from `USER.md` are not written to `user-profile.json`; they are merged in memory with profile attributes and broadcast only in full instance announce snapshots after asynchronous extraction completes.
+
+The default profile path is:
+
+```text
+~/.openclaw/libp2p/user-profile.json
+```
+
+When `OPENCLAW_STATE_DIR` is set:
+
+```text
+$OPENCLAW_STATE_DIR/libp2p/user-profile.json
+```
+
+Example `user-profile.json`:
+
+```json
+{
+  "version": 1,
+  "updatedAt": 1782180000000,
+  "attributes": [
+    {
+      "kind": "structured",
+      "key": "project",
+      "value": "openclaw",
+      "label": "project: openclaw",
+      "source": "profile"
+    },
+    {
+      "kind": "structured",
+      "key": "role",
+      "value": "maintainer",
+      "label": "role: maintainer",
+      "source": "profile"
+    }
+  ]
+}
+```
+
+Remote attributes are cached in plugin-managed instance state under `instance-peer.json.userPublicAttributes`:
+
+```json
+{
+  "version": 1,
+  "updatedAt": 1782180000000,
+  "instances": {
+    "alice-mac@AQIDBAUGBweI.7a3f9e2b": {
+      "instanceId": "alice-mac@AQIDBAUGBweI.7a3f9e2b",
+      "peerId": "12D3KooW...",
+      "instanceName": "alice-mac",
+      "multiaddrs": ["/ip4/192.168.1.23/tcp/4001"],
+      "userPublicAttributes": [
+        {
+          "kind": "tag",
+          "value": "libp2p",
+          "label": "libp2p",
+          "source": "USER.md"
+        },
+        {
+          "kind": "structured",
+          "key": "project",
+          "value": "openclaw",
+          "label": "project: openclaw",
+          "source": "profile"
+        }
+      ],
+      "lastSeenAt": 1782180000000,
+      "lastAnnouncedAt": 1782180000000,
+      "source": "announce"
+    }
+  }
+}
+```
+
+### Local peer labels
+
+Use local peer labels when you want to classify remote instances privately on this machine:
+
+```bash
+openclaw libp2p-mesh labels
+```
+
+The default labels path is:
+
+```text
+~/.openclaw/libp2p/peer-labels.json
+```
+
+When `OPENCLAW_STATE_DIR` is set:
+
+```text
+$OPENCLAW_STATE_DIR/libp2p/peer-labels.json
+```
+
+Example `peer-labels.json`:
+
+```json
+{
+  "version": 1,
+  "updatedAt": 1782180000000,
+  "peers": {
+    "alice-mac@AQIDBAUGBweI.7a3f9e2b": {
+      "labels": [
+        { "key": "group", "value": "实验室" },
+        { "key": "project", "value": "openclaw" }
+      ]
+    }
+  }
+}
+```
+
+Privacy boundary: `peer-labels.json` is local state for your gateway. It is not announced to peers, not written into remote `instance-peer.json.userPublicAttributes`, and not visible to the remote user through the mesh protocol. Public attributes in `USER.md` and `user-profile.json` are still broadcast with instance announce messages.
+
+Use `p2p_send_user_attribute_message` for attribute-based group messages. It defaults to public attributes only, equivalent to `scope="public"`. Always dry-run first. If the dry run matches targets, call the same tool again immediately with the same selector, scope, message, and `dryRun: false`.
+
+Public scope matches attributes that remote instances announced from their own `USER.md` or `user-profile.json`:
+
+```text
+p2p_send_user_attribute_message({
+  "selector": "project=openclaw",
+  "message": "今晚同步一下进展",
+  "scope": "public",
+  "dryRun": true
+})
+```
+
+After a matching dry run:
+
+```text
+p2p_send_user_attribute_message({
+  "selector": "project=openclaw",
+  "message": "今晚同步一下进展",
+  "scope": "public",
+  "dryRun": false
+})
+```
+
+Local scope, written as `scope="local"` in prompt instructions or `"scope": "local"` in tool JSON, matches only labels from your `peer-labels.json`:
+
+```text
+p2p_send_user_attribute_message({
+  "selector": "group=实验室",
+  "message": "我按本地归类发一个提醒",
+  "scope": "local",
+  "dryRun": true
+})
+```
+
+All scope matches both sources and deduplicates by instance:
+
+```text
+p2p_send_user_attribute_message({
+  "selector": "project=openclaw",
+  "message": "公开属性和本地标签都算",
+  "scope": "all",
+  "dryRun": true
+})
+```
+
+Selectors use `key=value` for structured profile attributes or local labels. Tag matches use `tag:value` or `#value` for public `USER.md` tags. Bare selectors such as `实验室` are rejected because they are ambiguous; use `group=实验室` for a structured group or `tag:实验室` for a USER.md tag.
+
+```text
+p2p_send_user_attribute_message({
+  "selector": "#libp2p",
+  "message": "libp2p 方向有个问题想确认",
+  "dryRun": true
+})
+```
+
+The first version matches only instances already present in the local `instance-peer.json` discovery cache. It does not search the whole network or ask disconnected peers for more users.
+
+Privacy boundary: public attributes are broadcast with instance announce messages to peers your gateway connects to. Do not put private, sensitive, or access-controlled information in `USER.md` tags or `user-profile.json` structured attributes.
+
+## Troubleshooting
+
+### Peers do not discover each other
+
+1. **Confirm same network** — Both computers must be on the same subnet (e.g. `192.168.1.x`). Check with `ip addr` or `ifconfig`.
+2. **Check firewall** — OpenClaw needs inbound TCP access on the port chosen by libp2p (random by default). Temporarily disable the firewall to test:
+   - macOS: `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off`
+   - Linux (ufw): `sudo ufw disable`
+   - Linux (firewalld): `sudo systemctl stop firewalld`
+3. **Check mDNS** — Ensure mDNS/Bonjour/Avahi is running:
+   - macOS: built-in, should work
+   - Linux: `sudo systemctl status avahi-daemon`
+4. **Use static port + manual IP** — If mDNS still fails, add the other node as a bootstrap entry by LAN IP:
+   ```json
+   {
+     "bootstrapList": [
+       "/ip4/192.168.1.42/tcp/4001/p2p/<PEER-ID-OF-OTHER-MACHINE>"
+     ]
+   }
+   ```
+
+### "Mesh network is not started" error
+
+This error only appears if you run `openclaw message send` while the gateway is **not** running. Start the gateway first:
+```bash
+openclaw gateway run
+```
+
+If the gateway is already running, the CLI automatically routes through the gateway (this was fixed in recent versions).
+
+### Message timeout after 8 seconds
+
+The peer may be unreachable. Check:
+- Is the target gateway still running?
+- Are both machines on the same network?
+- Is there a firewall blocking the connection?
+
+### Connected peers are not visible in logs
+
+Peer connection and disconnection are logged at `info` level:
+
+```text
+[libp2p-mesh] Peer connected: 12D3KooW...
+[libp2p-mesh] Instance mapping updated: bob@def.456 -> 12D3KooW...
+```
+
+If these lines are missing, confirm the gateway is running with normal info logs enabled and that both instances are on the same mDNS, bootstrap, or relay network.
+
+### Instance announce routes are missing between two machines
+
+If peers connect but sending by OpenClaw instance ID fails or `instance-peer.json` is not updated, first confirm both gateways were restarted after the latest config change. On startup, the gateway now attaches the instance router plus inbound message handlers before starting the mesh, so early announces should be handled once the peer connection appears.
+
+For a short debug session on both computers:
+
+1. Run `openclaw libp2p-mesh debug`.
+2. Set `announceLogDetail` to `payload` and confirm the privacy warning.
+3. Restart both gateways with `openclaw gateway restart`.
+4. Watch for summary lines and debug lines containing full announce payload JSON.
+5. Return to `summary` or `off` with `openclaw libp2p-mesh debug`, then restart again.
+
+Full payload logs may expose `userPublicAttributes`, multiaddrs, pubkey, and instance identity, so avoid sharing these logs outside the debugging context.
+
+## Architecture
+
+```
+┌─────────────┐      mDNS LAN        ┌─────────────┐
+│  Computer A │  ←────────────────→  │  Computer B │
+│  (OpenClaw) │    auto-discovery    │  (OpenClaw) │
+│             │  ◄─── libp2p/TCP ──► │             │
+│  Peer ID: A │                      │  Peer ID: B │
+└─────────────┘                      └─────────────┘
+```
+
+- **mDNS** broadcasts service announcements on the LAN
+- **libp2p** handles encrypted peer connections and stream multiplexing
+- **Noise** encrypts all traffic between peers
+- Messages are deduplicated by message ID to prevent loops
+
+## Development
+
+```bash
+cd extensions/libp2p-mesh
+
+# Standalone mesh test (no OpenClaw required)
+node --import tsx test-p2p-communication.mjs
+
+# Build the plugin
+cd ../..
+pnpm build
+```
+
+## License
+
+MIT

@@ -1,0 +1,9 @@
+[Desktop Entry]
+# Template example. Run scripts/install_desktop_entry.sh to write a local copy.
+Type=Application
+Name=SwiftClaw
+Comment=Run SwiftClaw Telegram bot in a desktop session
+Exec=/home/ypp/projects/swiftclaw/.worktrees/phase1-core/scripts/start_visible_desktop.sh
+Path=/home/ypp/projects/swiftclaw/.worktrees/phase1-core
+Terminal=true
+Categories=Network;Chat;

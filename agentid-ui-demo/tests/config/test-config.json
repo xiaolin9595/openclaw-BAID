@@ -1,0 +1,33 @@
+{
+  "baseUrl": "http://localhost:8080",
+  "testUser": {
+    "email": "test@example.com",
+    "password": "password123",
+    "username": "testuser"
+  },
+  "timeouts": {
+    "navigation": 30000,
+    "action": 10000,
+    "element": 5000,
+    "deployment": 10000
+  },
+  "agentRegistration": {
+    "defaultAgentName": "Test Agent",
+    "parameters": {
+      "param1": "Test Parameter 1",
+      "param2": "Test Parameter 2",
+      "param3": "Test Parameter 3"
+    },
+    "expectedStates": ["活跃", "待确认", "Active", "Pending"]
+  },
+  "screenshots": {
+    "enabled": true,
+    "path": "./test-results/screenshots/",
+    "onFailure": true
+  },
+  "reports": {
+    "enabled": true,
+    "path": "./test-results/reports/",
+    "format": "html"
+  }
+}

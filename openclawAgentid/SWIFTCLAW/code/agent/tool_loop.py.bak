@@ -1,0 +1,132 @@
+"""Tool calling loop for AI agent."""
+
+import json
+from typing import Any
+
+from agent.llm import LLMClient
+from tools.registry import ToolRegistry
+
+
+class ToolLoop:
+    """Tool execution loop for AI agent.
+
+    Uses prompt-based tool calling where the LLM is instructed to
+    request tools using a specific format in its response.
+
+    Example:
+        loop = ToolLoop(llm_client, registry)
+        result = await loop.run("What files are in the current directory?")
+    """
+
+    def __init__(self, llm_client: LLMClient, registry: ToolRegistry) -> None:
+        """Initialize tool loop.
+
+        Args:
+            llm_client: LLM client for generating responses.
+            registry: Tool registry containing available tools.
+        """
+        self.llm = llm_client
+        self.tools = registry
+
+    def _build_system_prompt(self) -> str:
+        """Build system prompt with tool descriptions.
+
+        Returns:
+            System prompt instructing LLM how to use tools.
+        """
+        tools_desc = self.tools.build_tools_description()
+
+        return f"""You are an AI assistant. You can use the following tools:
+
+{tools_desc}
+
+If you need to use a tool, respond in this exact format:
+TOOL: tool_name
+PARAM: {{"key": "value", ...}}
+
+The PARAM line must be valid JSON.
+
+If you don't need a tool, respond directly to the user without using the TOOL: prefix."""
+
+    def _parse_tool_call(self, content: str) -> tuple[str, dict[str, Any]] | None:
+        """Parse tool call from LLM response.
+
+        Args:
+            content: LLM response content.
+
+        Returns:
+            Tuple of (tool_name, params) if valid tool call, None otherwise.
+        """
+        if not content.startswith("TOOL:"):
+            return None
+
+        lines = content.strip().split("\n", 1)
+        tool_line = lines[0].strip()
+        tool_name = tool_line.replace("TOOL:", "").strip()
+
+        if not tool_name:
+            return None
+
+        params: dict[str, Any] = {}
+        if len(lines) > 1:
+            param_line = lines[1].strip()
+            if param_line.startswith("PARAM:"):
+                json_str = param_line.replace("PARAM:", "").strip()
+                try:
+                    params = json.loads(json_str)
+                except json.JSONDecodeError:
+                    # Invalid JSON, return empty params
+                    pass
+
+        return tool_name, params
+
+    async def run(self, user_message: str) -> str:
+        """Run the tool loop with user message.
+
+        Args:
+            user_message: User's input message.
+
+        Returns:
+            Final response string.
+        """
+        system_prompt = self._build_system_prompt()
+
+        # First LLM call
+        response = await self.llm.complete(
+            messages=[{"role": "user", "content": user_message}],
+            system_message=system_prompt,
+        )
+
+        content = response.content
+
+        # Check if tool call is needed
+        tool_call = self._parse_tool_call(content)
+
+        if tool_call is None:
+            # No tool needed, return direct response
+            return content
+
+        tool_name, params = tool_call
+
+        # Execute the tool
+        result = await self.tools.execute(tool_name, **params)
+
+        # Second LLM call with tool result
+        follow_up = await self.llm.complete(
+            messages=[
+                {"role": "user", "content": user_message},
+                {
+                    "role": "assistant",
+                    "content": (
+                        f"I used tool '{tool_name}' with params {json.dumps(params)} "
+                        f"and got result: {json.dumps(result, ensure_ascii=False)}"
+                    ),
+                },
+            ],
+            system_message=(
+                "Based on the tool execution result, "
+                "provide a helpful response to the user."
+            ),
+        )
+
+        return follow_up.content

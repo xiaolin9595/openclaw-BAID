@@ -1,0 +1,11 @@
+{
+  "name": "agentid-demo-runner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:start": "node demo/runner.mjs start",
+    "demo:status": "node demo/runner.mjs status",
+    "demo:reset": "node demo/runner.mjs reset",
+    "demo:stop": "node demo/runner.mjs stop"
+  }
+}
