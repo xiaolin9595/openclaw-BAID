@@ -1,0 +1,74 @@
+name: Deploy AgentID web to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Set the AGENTID_API_URL repository variable to the public HTTPS API.
+      # The local fallback keeps the static preview buildable before the backend
+      # has a public TLS endpoint.
+      VITE_AGENTID_API_URL: ${{ vars.AGENTID_API_URL || 'http://119.45.133.252:8787' }}
+    defaults:
+      run:
+        working-directory: agentid-ui-demo
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agentid-ui-demo/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate API endpoint configuration
+        run: |
+          if [[ "$VITE_AGENTID_API_URL" == http://* ]]; then
+            echo "Warning: HTTP API configured for preview: $VITE_AGENTID_API_URL"
+            echo "GitHub Pages browsers may block API calls from HTTPS pages."
+            echo "Set the AGENTID_API_URL repository variable to an HTTPS URL for login and authorization."
+          elif [[ "$VITE_AGENTID_API_URL" != https://* ]]; then
+            echo "AGENTID_API_URL must be an HTTP or HTTPS URL."
+            exit 1
+          fi
+
+      - name: Build static pages
+        run: npm run build:control-plane
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: agentid-ui-demo/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
