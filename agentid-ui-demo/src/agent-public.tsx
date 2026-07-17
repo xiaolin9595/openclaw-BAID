@@ -205,7 +205,7 @@ function mapPublicRecord(record: PublicAgentRecord): AgentRecord {
     initials: fallback?.initials ?? record.agent.name.slice(0, 2).toUpperCase(),
     summary: record.profile.summary || fallback?.summary || "这个 Agent 还没有公开简介。",
     ownerLabel: fallback?.ownerLabel ?? "公开 Agent",
-    attributes: attributes.length ? attributes : fallback?.attributes ?? [],
+    attributes,
     status: record.agent.status === "active" ? "verified" : "unknown",
     instanceCount: fallback?.instanceCount ?? 0,
     lastSeen: fallback?.lastSeen ?? "状态未知",
@@ -213,6 +213,7 @@ function mapPublicRecord(record: PublicAgentRecord): AgentRecord {
     role: record.profile.role || fallback?.role || "通用 Agent",
     language: record.profile.language || fallback?.language || "未指定",
     demoBacked: fallback?.demoBacked,
+    capabilities: attributes.filter((attribute) => attribute.kind === "capability").map((attribute) => attribute.value),
     connection: record.profile.connection,
   };
 }
