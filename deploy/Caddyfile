@@ -1,0 +1,23 @@
+{
+  email admin@agentid-baid.site
+}
+
+agentid-baid.site {
+  encode gzip
+
+  @api path /v1/* /oauth/* /.well-known/* /health* /metrics*
+  handle @api {
+    reverse_proxy agentid-service:8787
+  }
+
+  handle /device* {
+    rewrite * /device.html
+    file_server
+  }
+
+  handle {
+    root * /srv
+    try_files {path} {path}/ /index.html
+    file_server
+  }
+}
