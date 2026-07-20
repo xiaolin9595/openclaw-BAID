@@ -171,7 +171,17 @@ function defaultPublicProfile(agentId: string, published = false, scopes: Scope[
 }
 
 function managedPublicProfile(profile: AgentPublicProfile): AgentPublicProfile {
-  return { ...profile, connection: profile.connection ? { ...profile.connection, multiaddrs: [...profile.connection.multiaddrs], relayMultiaddrs: [...profile.connection.relayMultiaddrs] } : undefined, attributes: profile.attributes.map((attribute) => ({ ...attribute })) };
+  return { ...profile, connection: profile.connection ? { ...profile.connection, multiaddrs: [...profile.connection.multiaddrs], relayMultiaddrs: [...profile.connection.relayMultiaddrs] } : undefined, attributes: uniquePublicAttributes(profile.attributes) };
+}
+
+function uniquePublicAttributes(attributes: AgentPublicProfile["attributes"]): AgentPublicProfile["attributes"] {
+  const seen = new Set<string>();
+  return attributes.filter((attribute) => {
+    const key = `${attribute.kind}:${attribute.key}:${attribute.value}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).map((attribute) => ({ ...attribute }));
 }
 
 function publicProfile(profile: AgentPublicProfile): AgentPublicProfile {
@@ -187,7 +197,7 @@ function publicProfile(profile: AgentPublicProfile): AgentPublicProfile {
   return {
     ...profile,
     connection,
-    attributes: profile.attributes.filter((attribute) => attribute.visible).map((attribute) => ({ ...attribute, visible: true })),
+    attributes: uniquePublicAttributes(profile.attributes).filter((attribute) => attribute.visible).map((attribute) => ({ ...attribute, visible: true })),
   };
 }
 
