@@ -21,7 +21,6 @@ import {
 import {
   agentIdApi,
   ApiError,
-  demoApi,
   demoModeEnabled,
   type Agent,
   type AgentPublicProfile,
@@ -30,7 +29,6 @@ import {
   type Approval,
   type AuditEvent,
   type CurrentUser,
-  type DemoStatus,
   type Instance,
 } from "./agentid-api";
 import "./control-plane.css";
@@ -114,7 +112,6 @@ export default function ControlPlane() {
   const [revokeTarget, setRevokeTarget] = useState<Instance | null>(null);
   const [revokeName, setRevokeName] = useState("");
   const [isBusy, setIsBusy] = useState(false);
-  const [demoStatus, setDemoStatus] = useState<DemoStatus | null>(null);
 
   const loadWorkspace = useCallback(async (requestId?: string, signedInUser?: CurrentUser) => {
     setIsLoading(true);
@@ -181,25 +178,6 @@ export default function ControlPlane() {
     void initialize();
   }, [loadWorkspace]);
 
-  useEffect(() => {
-    if (!demoModeEnabled) return undefined;
-    let active = true;
-    const refresh = async () => {
-      try {
-        const next = await demoApi.getStatus();
-        if (active) setDemoStatus(next);
-      } catch {
-        // Keep the last demo snapshot visible while the local bridge restarts.
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 1000);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
   const selectedAgent = useMemo(() => agents.find((agent) => agent.id === selectedAgentId) ?? null, [agents, selectedAgentId]);
   const selectedInstances = selectedAgent ? instances[selectedAgent.id] ?? [] : [];
   const pendingCount = approvals.length + (approvalTarget?.status === "pending" && !approvals.some((approval) => approval.id === approvalTarget.id) ? 1 : 0);
@@ -208,26 +186,6 @@ export default function ControlPlane() {
     await navigator.clipboard?.writeText(value);
     setNotice(`${label}已复制`);
   };
-
-  const startDemoP2P = async (mode: "initial" | "after-revoke" = "initial") => {
-    try {
-      await demoApi.startP2P(mode);
-      setNotice(mode === "initial" ? "双节点验证已启动" : "撤销后的拒绝验证已启动");
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  };
-
-  const resetDemo = async () => {
-    if (!window.confirm("确认重置 Demo？这会清除 Demo 用户、授权和两个客户端状态。")) return;
-    try {
-      await demoApi.reset();
-      window.location.reload();
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  };
-
 
   const handleCreateAgent = async () => {
     const name = newAgentName.trim();
@@ -342,9 +300,8 @@ export default function ControlPlane() {
       </aside>
 
       <main className="console-main">
-        <header className="topbar"><div className="topbar-context"><span className="eyebrow">AGENT IDENTITY PLATFORM</span><span className="notice" role="status">{notice}</span></div><button className="icon-button" aria-label="刷新身份数据" onClick={() => void loadWorkspace()} title="刷新" type="button"><BellOutlined /></button></header>
+        <header className="topbar"><div className="topbar-context"><span className="eyebrow">AGENT IDENTITY PLATFORM</span><span className="notice" role="status">{notice}</span></div><div className="topbar-actions">{demoModeEnabled ? <a className="topbar-link" href={pageUrl("openclaw.html")}><LinkOutlined /> OpenClaw 运行页</a> : null}<button className="icon-button" aria-label="刷新身份数据" onClick={() => void loadWorkspace()} title="刷新" type="button"><BellOutlined /></button></div></header>
         {fatalError ? <div className="surface-error" role="alert">{fatalError}</div> : null}
-        {demoModeEnabled ? <DemoPanel status={demoStatus} onStartP2P={startDemoP2P} onReset={() => void resetDemo()} /> : null}
         {activeView === "agents" ? <AgentsView agents={agents} publicProfile={selectedAgent ? publicProfiles[selectedAgent.id] ?? null : null} members={selectedAgent ? members[selectedAgent.id] ?? [] : []} instances={selectedInstances} selectedAgent={selectedAgent} selectedAgentId={selectedAgentId} detailTab={detailTab} onSavePublicProfile={async (profile) => { if (!selectedAgent) return; const saved = await agentIdApi.updatePublicProfile(selectedAgent.id, profile); setPublicProfiles((current) => ({ ...current, [selectedAgent.id]: saved })); setNotice(saved.published ? "公开资料已发布" : "公开资料已保存为草稿"); }} onCreate={() => setIsCreateOpen(true)} onRename={handleRenameAgent} onOpenApprovals={() => setActiveView("approvals")} onOpenDevice={setDeviceDetail} onPair={() => setIsPairingOpen(true)} onRevoke={setRevokeTarget} onSelectAgent={setSelectedAgentId} onSelectTab={setDetailTab} /> : null}
         {activeView === "approvals" ? <ApprovalsView agents={agents} approvals={approvals} deepLinkRequest={approvalTarget} onBack={() => setActiveView("agents")} onOpen={openApproval} /> : null}
         {activeView === "activity" ? <ActivityView events={events} onBack={() => setActiveView("agents")} /> : null}
@@ -547,7 +504,7 @@ function LoadingScreen() {
 
 function AgentsView({ agents, publicProfile, members, instances, selectedAgent, selectedAgentId, detailTab, onSavePublicProfile, onCreate, onRename, onOpenApprovals, onOpenDevice, onPair, onRevoke, onSelectAgent, onSelectTab }: { agents: Agent[]; publicProfile: AgentPublicProfile | null; members: AgentMember[]; instances: Instance[]; selectedAgent: Agent | null; selectedAgentId: string; detailTab: DetailTab; onSavePublicProfile: (profile: Omit<AgentPublicProfile, "agentId" | "updatedAt">) => Promise<void>; onCreate: () => void; onRename: (agent: Agent) => void; onOpenApprovals: () => void; onOpenDevice: (device: Instance) => void; onPair: () => void; onRevoke: (device: Instance) => void; onSelectAgent: (id: string) => void; onSelectTab: (tab: DetailTab) => void }) {
   const tabs: Array<{ id: DetailTab; label: string }> = [{ id: "devices", label: "设备" }, { id: "public", label: "公开资料" }, { id: "members", label: "成员" }, { id: "rules", label: "规则" }, { id: "activity", label: "活动" }];
-  return <section className="page page-agents"><div className="page-heading"><div><span className="eyebrow">WORKSPACE</span><h1>我的 Agent</h1><p>控制哪些 OpenClaw 实例可以代表你的 Agent 运行。</p></div><button className="button button-primary" onClick={onCreate} type="button"><PlusOutlined /> 创建 Agent</button></div><div className="workspace-grid"><section className="agent-index" aria-label="Agent 列表"><div className="index-heading"><span>你的 Agent</span><span>{agents.length}</span></div>{agents.map((agent) => <button className={`agent-row ${agent.id === selectedAgentId ? "is-selected" : ""}`} key={agent.id} onClick={() => onSelectAgent(agent.id)} type="button"><span className="agent-monogram">{agent.name.slice(0, 1)}</span><span className="agent-row-copy"><strong>{agent.name}</strong><small>{agent.pendingApprovalCount ? `${agent.pendingApprovalCount} 个待授权请求` : `${agent.instanceCount} 台已授权设备`}</small></span>{agent.pendingApprovalCount ? <b className="request-pip">{agent.pendingApprovalCount}</b> : <RightOutlined />}</button>)}</section>{selectedAgent ? <section className="agent-workspace"><div className="agent-identity-strip"><div><span className="eyebrow">AGENT / {selectedAgent.id}</span><div className="agent-title-line"><h2>{selectedAgent.name}</h2><span className="trust-badge"><CheckCircleFilled /> {selectedAgent.role === "owner" ? "Owner" : selectedAgent.role}</span></div><p>Agent ID 由服务端管理；已绑定的设备可在不泄露账户 ID 的情况下代表它通信。</p></div><div className="workspace-actions"><button className="icon-button" aria-label="重命名 Agent" onClick={() => onRename(selectedAgent)} title="重命名 Agent" type="button"><SettingOutlined /></button>{selectedAgent.pendingApprovalCount ? <button className="button button-quiet with-count" onClick={onOpenApprovals} type="button">待处理请求 <b>{selectedAgent.pendingApprovalCount}</b></button> : null}<button className="button button-primary" onClick={onPair} type="button"><LinkOutlined /> 连接设备</button></div></div><div className="agent-tabs" role="tablist">{tabs.map((tab) => <button aria-selected={detailTab === tab.id} className={detailTab === tab.id ? "is-active" : ""} key={tab.id} onClick={() => onSelectTab(tab.id)} role="tab" type="button">{tab.label}</button>)}</div>{detailTab === "devices" ? <DeviceTable instances={instances} onOpen={onOpenDevice} onPair={onPair} onRevoke={onRevoke} /> : null}{detailTab === "public" ? <PublicProfilePanel agent={selectedAgent} profile={publicProfile} onSave={onSavePublicProfile} /> : null}{detailTab === "members" ? <MembersPanel members={members} /> : null}{detailTab === "rules" ? <div className="plain-panel rules-panel"><div><span className="label">新设备</span><strong>需要 Owner 批准</strong><p>网站会核对设备名称、实例公钥和权限范围。</p></div><div><span className="label">凭证期限</span><strong>90 天</strong><p>已撤销或密钥变化的设备必须重新链接。</p></div><div><span className="label">身份模式</span><strong>兼容模式</strong><p>未升级节点仍可互通；严格模式由插件策略启用。</p></div></div> : null}{detailTab === "activity" ? <div className="plain-panel activity-panel"><div><span>服务端审计</span><strong>身份事件在“活动记录”中查看</strong><p>设备授权、拒绝与撤销均由服务端写入不可变审计流。</p></div></div> : null}</section> : <EmptyAgentWorkspace onCreate={onCreate} />}</div></section>;
+  return <section className="page page-agents"><div className="page-heading"><div><span className="eyebrow">WORKSPACE</span><h1>我的 Agent</h1><p>控制哪些 OpenClaw 实例可以代表你的 Agent 运行。</p></div><button className="button button-primary" onClick={onCreate} type="button"><PlusOutlined /> 创建 Agent</button></div><div className="workspace-grid"><section className="agent-index" aria-label="Agent 列表"><div className="index-heading"><span>你的 Agent</span><span>{agents.length}</span></div>{agents.map((agent) => <button className={`agent-row ${agent.id === selectedAgentId ? "is-selected" : ""}`} key={agent.id} onClick={() => onSelectAgent(agent.id)} type="button"><span className="agent-monogram">{agent.name.slice(0, 1)}</span><span className="agent-row-copy"><strong>{agent.name}</strong><small>{agent.pendingApprovalCount ? `${agent.pendingApprovalCount} 个待授权请求` : `${agent.instanceCount} 台已授权设备`}</small></span>{agent.pendingApprovalCount ? <b className="request-pip">{agent.pendingApprovalCount}</b> : <RightOutlined />}</button>)}</section>{selectedAgent ? <section className="agent-workspace"><div className="agent-identity-strip"><div><span className="eyebrow">AGENT / {selectedAgent.id}</span><div className="agent-title-line"><h2>{selectedAgent.name}</h2><span className="trust-badge"><CheckCircleFilled /> {selectedAgent.role === "owner" ? "Owner" : selectedAgent.role}</span></div><p>Agent ID 由服务端管理；已绑定的设备可在不泄露账户 ID 的情况下代表它通信。</p></div><div className="workspace-actions"><button className="icon-button" aria-label="重命名 Agent" onClick={() => onRename(selectedAgent)} title="重命名 Agent" type="button"><SettingOutlined /></button><a className="button button-quiet" href={pageUrl("agent-public.html", `?agent=${encodeURIComponent(selectedAgent.id)}`)} target="_blank" rel="noreferrer"><LinkOutlined /> 公共页面</a>{selectedAgent.pendingApprovalCount ? <button className="button button-quiet with-count" onClick={onOpenApprovals} type="button">待处理请求 <b>{selectedAgent.pendingApprovalCount}</b></button> : null}<button className="button button-primary" onClick={onPair} type="button"><LinkOutlined /> 连接设备</button></div></div><div className="agent-tabs" role="tablist">{tabs.map((tab) => <button aria-selected={detailTab === tab.id} className={detailTab === tab.id ? "is-active" : ""} key={tab.id} onClick={() => onSelectTab(tab.id)} role="tab" type="button">{tab.label}</button>)}</div>{detailTab === "devices" ? <DeviceTable instances={instances} onOpen={onOpenDevice} onPair={onPair} onRevoke={onRevoke} /> : null}{detailTab === "public" ? <PublicProfilePanel agent={selectedAgent} profile={publicProfile} onSave={onSavePublicProfile} /> : null}{detailTab === "members" ? <MembersPanel members={members} /> : null}{detailTab === "rules" ? <div className="plain-panel rules-panel"><div><span className="label">新设备</span><strong>需要 Owner 批准</strong><p>网站会核对设备名称、实例公钥和权限范围。</p></div><div><span className="label">凭证期限</span><strong>90 天</strong><p>已撤销或密钥变化的设备必须重新链接。</p></div><div><span className="label">身份模式</span><strong>兼容模式</strong><p>未升级节点仍可互通；严格模式由插件策略启用。</p></div></div> : null}{detailTab === "activity" ? <div className="plain-panel activity-panel"><div><span>服务端审计</span><strong>身份事件在“活动记录”中查看</strong><p>设备授权、拒绝与撤销均由服务端写入不可变审计流。</p></div></div> : null}</section> : <EmptyAgentWorkspace onCreate={onCreate} />}</div></section>;
 }
 
 function PublicProfilePanel({ agent, profile, onSave }: { agent: Agent; profile: AgentPublicProfile | null; onSave: (profile: Omit<AgentPublicProfile, "agentId" | "updatedAt">) => Promise<void> }) {
@@ -662,13 +619,6 @@ function SecurityView({ user, onEmailBound }: { user: CurrentUser; onEmailBound:
     }
   };
   return <section className="page"><div className="page-heading"><div><span className="eyebrow">ACCOUNT PROTECTION</span><h1>账户与安全</h1><p>管理账号密码和邮箱恢复。</p></div></div><section className="security-list"><div className="security-row"><span className="security-icon"><UserOutlined /></span><div><strong>账号</strong><p>{user.username}</p></div><span className="status status-online"><CheckCircleFilled /> 已启用</span></div><div className="security-row email-security-row"><span className="security-icon"><UserOutlined /></span><div><strong>恢复邮箱</strong><p>{user.email ?? "尚未绑定邮箱"}</p>{!user.email || sent ? <div className="email-binding-form"><input aria-label="恢复邮箱" disabled={sent} inputMode="email" onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" type="email" value={email} />{sent ? <><input aria-label="邮箱验证码" inputMode="numeric" maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="6 位验证码" value={code} />{demoModeEnabled ? <button className="text-action" disabled={busy} onClick={() => void readDemoMailbox()} type="button">读取演示验证码</button> : null}<button className="text-action" disabled={code.length !== 6 || busy} onClick={() => void verifyBindingCode()} type="button">确认绑定</button></> : <button className="text-action" disabled={!email.includes("@") || busy} onClick={() => void sendBindingCode()} type="button">发送验证邮件</button>}</div> : null}{notice ? <span className="auth-notice" role="status">{notice}</span> : null}</div><span className={`status status-${user.email ? "online" : "expiring"}`}>{user.email ? <CheckCircleFilled /> : <BellOutlined />}{user.email ? " 已绑定" : " 待绑定"}</span></div></section><section className="security-note"><SafetyCertificateOutlined /><span>网站不会保存 OpenClaw 实例私钥、设备码或长期客户端令牌。</span></section></section>;
-}
-
-function DemoPanel({ status, onStartP2P, onReset }: { status: DemoStatus | null; onStartP2P: (mode?: "initial" | "after-revoke") => Promise<void>; onReset: () => void }) {
-  const clients = status ? [status.clients.a, status.clients.b] : [];
-  const p2pEvents = status?.p2p.result?.events ?? [];
-  const activeCount = clients.filter((client) => client.status === "active").length;
-  return <section className="demo-panel"><div className="demo-panel-header"><div><span className="eyebrow">LOCAL DEMO CONTROL</span><h2>OpenClaw 双节点演示</h2><p>状态来自本机 Demo Control Bridge，不展示完整 IBC、私钥或设备码。</p></div><div className="demo-panel-actions"><button className="button button-quiet" disabled={status?.p2p.status === "running" || activeCount < 2} onClick={() => void onStartP2P("initial")} type="button"><LinkOutlined /> {status?.p2p.status === "running" ? "验证进行中" : "启动双向验证"}</button><button className="button button-danger-outline" onClick={onReset} type="button">重置 Demo</button></div></div>{status ? <><div className="demo-node-grid">{clients.map((client) => <div className="demo-node" key={client.nodeId}><div className="demo-node-title"><span className="demo-node-badge">{client.nodeId}</span><strong>OpenClaw 节点 {client.nodeId}</strong><span className={`status status-${client.status === "active" ? "online" : client.status === "revoked" ? "offline" : "expiring"}`}>{client.status}</span></div><div className="demo-facts"><div><span>Instance ID</span><code>{client.instanceId ?? "未生成"}</code></div><div><span>AgentID</span><code>{client.agentId ?? "未绑定"}</code></div><div><span>绑定用户 ID 哈希</span><code>{client.userIdHash ?? "未绑定"}</code></div><div><span>JTI</span><code>{client.jti ?? "未签发"}</code></div><div><span>权限</span><strong>{client.scopes.length ? client.scopes.join("、") : "未绑定"}</strong></div><div><span>到期</span><strong>{client.expiresAt ? formatTime(client.expiresAt) : "未知"}</strong></div></div></div>)}</div><div className="demo-p2p"><div className="demo-p2p-header"><div><span className="eyebrow">P2P VERIFICATION</span><h3>双向消息验证</h3></div><span className={`status status-${status.p2p.status === "completed" ? "online" : status.p2p.status === "failed" ? "offline" : "expiring"}`}>{status.p2p.status}</span></div>{p2pEvents.length ? <div className="demo-timeline">{p2pEvents.map((event, index) => <div className="demo-timeline-row" key={`${event.at}-${index}`}><span className="demo-timeline-mark"><CheckOutlined /></span><div><strong>{event.nodeId} 收到消息 · {event.agentId ?? "无 AgentID"}</strong><p>{event.payload ?? "身份语义消息"}</p></div><span className={event.ibcVerified ? "verification-ok" : "verification-failed"}>{event.ibcVerified ? "IBC 已验证" : "验证失败"}</span></div>)}</div> : <p className="demo-empty">等待两个节点完成绑定后，点击“启动双向验证”。</p>}{status.p2p.status === "completed" && status.p2p.mode === "initial" ? <button className="text-action" onClick={() => void onStartP2P("after-revoke")} type="button">撤销 A 后再次验证</button> : null}{status.p2p.result?.error ? <div className="surface-error" role="alert">{status.p2p.result.error}</div> : null}</div><div className="demo-bridge-note"><span>服务：{status.service.health.ok ? "ready" : "不可用"}</span><span>控制桥：{status.control.url}</span><span>验证码：登录页可读取本地邮箱桥</span></div></> : <p className="demo-empty">正在连接本地 Demo Control Bridge…</p>}</section>;
 }
 
 function PairingModal({ onClose, onCopy }: { onClose: () => void; onCopy: (value: string, label: string) => void }) {

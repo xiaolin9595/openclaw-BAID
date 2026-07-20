@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig.app.json",
-  "include": ["src/vite-env.d.ts", "src/control-plane.tsx", "src/agentid-api.ts"]
+  "include": ["src/vite-env.d.ts", "src/control-plane.tsx", "src/openclaw.tsx", "src/demo-panel.tsx", "src/agent-public.tsx", "src/agentid-api.ts"]
 }

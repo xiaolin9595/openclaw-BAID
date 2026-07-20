@@ -28,6 +28,7 @@ export default defineConfig({
         login: path.resolve(__dirname, 'login.html'),
         device: path.resolve(__dirname, 'device.html'),
         agentPublic: path.resolve(__dirname, 'agent-public.html'),
+        openclaw: path.resolve(__dirname, 'openclaw.html'),
       },
     },
   },

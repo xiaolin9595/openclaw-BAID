@@ -787,7 +787,7 @@ test("agentid link accepts an optional --agent and uses the configured issuer ou
   await link.actionHandler!({});
 
   assert.deepEqual(linked, [{ agentId: undefined, issuer }]);
-  assert.deepEqual(savedConfigs, [{ issuer, trustedIssuers: [issuer] }]);
+  assert.deepEqual(savedConfigs, [{ issuer, trustedIssuers: [issuer], publicConnection: { enabled: true, allowDirectDial: true } }]);
   assert.match(output.join("\n"), /AgentID linked/);
   await assert.rejects(link.actionHandler!({ issuer: "https://production.example" }), /limited to loopback development issuers/);
 });

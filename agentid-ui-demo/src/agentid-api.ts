@@ -140,6 +140,13 @@ export type DemoClientStatus = {
   expiresAt: string | null;
   lastStatusCheckAt: string | null;
   error: string | null;
+  connection?: {
+    allowDiscovery: boolean;
+    allowDirectDial: boolean;
+    peerId: string | null;
+    multiaddrs: string[];
+    relayMultiaddrs: string[];
+  } | null;
 };
 
 export type DemoP2PEvent = {

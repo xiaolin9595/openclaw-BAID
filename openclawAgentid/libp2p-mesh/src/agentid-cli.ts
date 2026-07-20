@@ -110,6 +110,14 @@ export function registerLibp2pMeshAgentIdCommand(
         ...config,
         issuer,
         trustedIssuers,
+        // Linking an instance also opts it into the public directory. The
+        // owner can later disable discovery or provide explicit public/relay
+        // addresses in the plugin configuration.
+        publicConnection: {
+          enabled: true,
+          allowDirectDial: true,
+          ...(config?.publicConnection ?? {}),
+        },
       };
       const writer = deps.createWriter?.(api) ?? createOpenClawAgentIdConfigWriter(api);
       await writer.save(nextConfig);

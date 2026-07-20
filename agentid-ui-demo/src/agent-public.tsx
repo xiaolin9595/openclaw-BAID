@@ -319,7 +319,6 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
   const [connectionState, setConnectionState] = useState<"idle" | "pairing" | "dialing" | "verified" | "failed">("idle");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const visibleAttributes = agent.attributes.filter((attribute) => attribute.visible !== false);
-  const hasPublishedConnection = Boolean(agent.connection?.allowDiscovery && (agent.connection.multiaddrs.length || agent.connection.relayMultiaddrs.length));
   const attributeGroups = [
     { kind: "capability" as const, title: "能力", note: "可用于 Agent Discovery 的任务匹配" },
     { kind: "tag" as const, title: "标签", note: "由 Agent 或所有者公开声明" },
@@ -327,6 +326,8 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
   ].map((group) => ({ ...group, attributes: visibleAttributes.filter((attribute) => attribute.kind === group.kind) })).filter((group) => group.attributes.length > 0);
   const client = agent.demoBacked ? demo?.clients.a : null;
   const agentId = client?.agentId ?? agent.id;
+  const connection = agent.connection ?? client?.connection ?? null;
+  const hasPublishedConnection = Boolean(connection?.allowDiscovery && connection.peerId && (connection.multiaddrs.length || connection.relayMultiaddrs.length));
   const isVerified = agent.status === "verified" && Boolean(agentId);
   const presence = loading ? "读取中" : client?.gatewayRunning ? "状态未知" : client ? "暂未连接" : agent.lastSeen;
 
@@ -420,6 +421,14 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
         </div>
       </section>
 
+      <section className="public-connection-card" aria-labelledby="public-connection-title">
+        <div className="public-connection-heading">
+          <div><p className="public-eyebrow">PUBLIC CONNECTION</p><h2 id="public-connection-title">公开连接信息</h2><p>这些地址用于发现和拨号，只有 Agent 所有者开启公开发现后才会展示。</p></div>
+          <span className={`connection-status ${hasPublishedConnection ? "is-available" : "is-unavailable"}`}>{hasPublishedConnection ? "可发现" : "未发布"}</span>
+        </div>
+        {hasPublishedConnection ? <div className="public-connection-grid"><div className="public-endpoint"><span>PeerID</span><code>{connection?.peerId}</code></div><div className="public-endpoint"><span>Direct multiaddr</span>{connection?.allowDirectDial && connection.multiaddrs.length ? <div className="public-endpoint-list">{connection.multiaddrs.map((address) => <code key={address}>{address}</code>)}</div> : <em>未公开直连地址</em>}</div><div className="public-endpoint"><span>Relay multiaddr</span>{connection?.relayMultiaddrs.length ? <div className="public-endpoint-list">{connection.relayMultiaddrs.map((address) => <code key={address}>{address}</code>)}</div> : <em>未配置中继地址</em>}</div></div> : <div className="public-connection-empty"><LinkOutlined /><span>目标 OpenClaw 尚未发布 PeerID 和 multiaddr。启动 libp2p-mesh 后，在 Agent 公共连接设置中开启“允许发现”，服务端会自动更新这里的信息。</span></div>}
+      </section>
+
       {communicationOpen && (
         <section className="communication-panel" aria-labelledby="communication-title">
           <div className="communication-panel-heading">
@@ -447,6 +456,7 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
               >
                 <LinkOutlined /> {connectionState === "pairing" ? "正在配对本机 OpenClaw" : connectionState === "dialing" ? "正在建立连接" : connectionState === "verified" ? "已加入通信列表" : "连接到本机 OpenClaw"}
               </button>
+              {connectionState === "verified" && demoModeEnabled ? <a className="openclaw-result-link" href={pageUrl("openclaw.html")}><LinkOutlined /> 在 OpenClaw 运行页查看双向验证</a> : null}
               {connectionError ? <p className="communication-error" role="alert">{connectionError}</p> : null}
             </div>
             <div className="communication-command">
@@ -455,7 +465,7 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
                 <button type="button" onClick={() => void copyCommunicationPayload()}><CopyOutlined /> 复制 JSON</button>
               </div>
               <pre>{JSON.stringify({ agentId, message }, null, 2)}</pre>
-              <p><SafetyCertificateOutlined /> 不会在网页中暴露用户 ID、PeerID、JTI、完整 IBC 或私钥。目标实例必须已完成 AgentID 验证。</p>
+              <p><SafetyCertificateOutlined /> PeerID 和 multiaddr 是公开拨号信息；用户 ID、JTI、完整 IBC 和私钥不会在网页中暴露。目标实例必须已完成 AgentID 验证。</p>
             </div>
           </div>
         </section>

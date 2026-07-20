@@ -107,6 +107,7 @@ export function createMeshNetwork(options: {
     signMessage: null as ((message: string) => string) | null,
     agentIdBinding: null as AgentIdBindingFile | null,
     agentIdMaintenance: null as AgentIdMaintenance | null,
+    publicConnectionRetryTimer: undefined as ReturnType<typeof setTimeout> | undefined,
     natFlags: {
       identify: false,
       autoNAT: false,
@@ -175,7 +176,7 @@ export function createMeshNetwork(options: {
   }
 
   async function publishPublicConnection(binding = state.agentIdBinding): Promise<void> {
-    if (!binding || !state.node || !state.instanceIdentity || !state.signMessage) return;
+    if (!binding || state.agentIdBinding?.jti !== binding.jti || !state.node || !state.instanceIdentity || !state.signMessage) return;
     const publication = config.agentId?.publicConnection;
     if (publication?.enabled === false) return;
     const configuredAddrs = publication?.announceAddrs?.filter((value) => typeof value === "string" && value.trim()) ?? [];
@@ -187,18 +188,30 @@ export function createMeshNetwork(options: {
       logger?.warn?.("[libp2p-mesh] AgentID public connection is enabled but no announce or relay multiaddr is available");
       return;
     }
-    await publishAgentIdConnection({
-      binding,
-      identity: state.instanceIdentity,
-      signMessage: state.signMessage,
-      peerId: state.node.peerId.toString(),
-      multiaddrs: listenAddrs,
-      relayMultiaddrs,
-      allowDiscovery: true,
-      allowDirectDial: publication?.allowDirectDial !== false,
-    }).catch((error) => {
-      logger?.warn?.(`[libp2p-mesh] Failed to publish AgentID public connection: ${String(error)}`);
-    });
+    try {
+      await publishAgentIdConnection({
+        binding,
+        identity: state.instanceIdentity,
+        signMessage: state.signMessage,
+        peerId: state.node.peerId.toString(),
+        multiaddrs: listenAddrs,
+        relayMultiaddrs,
+        allowDiscovery: true,
+        allowDirectDial: publication?.allowDirectDial !== false,
+      });
+      if (state.publicConnectionRetryTimer) {
+        clearTimeout(state.publicConnectionRetryTimer);
+        state.publicConnectionRetryTimer = undefined;
+      }
+    } catch (error) {
+      logger?.warn?.(`[libp2p-mesh] Failed to publish AgentID public connection; retrying: ${String(error)}`);
+      if (!state.publicConnectionRetryTimer && state.node && state.agentIdBinding?.jti === binding.jti) {
+        state.publicConnectionRetryTimer = setTimeout(() => {
+          state.publicConnectionRetryTimer = undefined;
+          void publishPublicConnection(binding);
+        }, 15_000);
+      }
+    }
   }
 
   async function start(): Promise<void> {
@@ -521,6 +534,10 @@ export function createMeshNetwork(options: {
   }
 
   async function stop(): Promise<void> {
+    if (state.publicConnectionRetryTimer) {
+      clearTimeout(state.publicConnectionRetryTimer);
+      state.publicConnectionRetryTimer = undefined;
+    }
     await state.agentIdMaintenance?.stop();
     state.agentIdMaintenance = null;
     state.agentIdBinding = null;

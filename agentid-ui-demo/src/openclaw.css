@@ -1,0 +1,27 @@
+body { margin: 0; background: #eef3ef; }
+.openclaw-shell { min-height: 100vh; color: #18201d; background: #eef3ef; }
+.openclaw-topbar { display: flex; align-items: center; justify-content: space-between; min-height: 72px; padding: 0 32px; border-bottom: 1px solid #cbd8d0; background: #12201c; color: #eff7f2; }
+.openclaw-brand, .openclaw-topbar-actions, .openclaw-brand > div { display: flex; align-items: center; }
+.openclaw-brand { gap: 11px; }
+.openclaw-brand > div { align-items: flex-start; flex-direction: column; gap: 3px; }
+.openclaw-brand strong { font-size: 17px; }
+.openclaw-brand span { color: #98b7aa; font: 9px "IBM Plex Mono", monospace; letter-spacing: .11em; }
+.openclaw-mark { display: grid; place-items: center; width: 32px; height: 32px; color: #153e32; background: #bde3d2; font: 800 16px "IBM Plex Mono", monospace; }
+.openclaw-topbar-actions { gap: 16px; }
+.openclaw-topbar-actions .button-quiet { border-color: #557b6a; color: #e0f2e8; background: transparent; }
+.openclaw-topbar-actions .button-quiet:hover { border-color: #9acdb7; background: #244036; }
+.openclaw-topbar-actions .icon-button { border-color: #557b6a; color: #d9eee3; background: transparent; }
+.openclaw-notice { color: #a8cabc; font-size: 11px; }
+.openclaw-main { max-width: 1320px; margin: 0 auto; padding: 30px 24px 70px; }
+.openclaw-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 24px 26px; border-top: 2px solid #18201d; background: #fff; }
+.openclaw-hero h1 { margin: 9px 0 7px; font-size: 28px; }
+.openclaw-hero p { max-width: 700px; margin: 0; color: #64736b; font-size: 13px; line-height: 1.7; }
+.openclaw-hero-actions { display: grid; gap: 7px; min-width: 220px; padding: 14px; border-left: 1px solid #d9dfda; color: #718078; font-size: 11px; }
+.openclaw-hero-actions span { display: inline-flex; align-items: center; gap: 7px; }
+.openclaw-hero-actions .anticon { color: #147d72; }
+.openclaw-hero-actions strong { color: #35413b; font: 11px "IBM Plex Mono", monospace; }
+.openclaw-main .demo-panel { margin-top: 24px; }
+.openclaw-unavailable { margin-top: 24px; padding: 32px; border-top: 2px solid #18201d; background: #fff; }
+.openclaw-unavailable h2 { margin: 0 0 8px; }
+.openclaw-unavailable p { margin: 0; color: #64736b; }
+@media (max-width: 760px) { .openclaw-topbar { align-items: flex-start; flex-direction: column; gap: 12px; padding: 16px 20px; }.openclaw-topbar-actions { width: 100%; justify-content: space-between; gap: 8px; }.openclaw-notice { display: none; }.openclaw-main { padding: 20px 14px 60px; }.openclaw-hero { align-items: flex-start; flex-direction: column; padding: 20px; }.openclaw-hero-actions { width: 100%; border-top: 1px solid #d9dfda; border-left: 0; }.openclaw-main .demo-panel-header { flex-direction: column; }.openclaw-main .demo-panel-actions { width: 100%; }.openclaw-main .demo-panel-actions .button { flex: 1; } }

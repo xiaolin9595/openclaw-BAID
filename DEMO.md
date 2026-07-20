@@ -16,15 +16,15 @@ Demo 使用数据库 `agentid_demo`、两个独立 OpenClaw profile（`agentid-d
 
 ## 演示步骤
 
-1. 输入邮箱，点击“发送验证码”。
-2. 点击“读取本地演示邮箱验证码”，把验证码填入登录表单并登录。
-3. 在待授权列表打开 A 或 B 的请求，核对设备、公钥指纹和 `p2p:announce`、`p2p:message` 权限。
-4. 点击“使用 Passkey 创建并授权”。第一次会在当前浏览器登记 Passkey，随后完成批准；第二个请求使用同一个 Passkey 完成确认。
-5. 在“OpenClaw 双节点演示”区域查看 InstanceID、AgentID、绑定用户 ID、JTI、权限、状态和到期时间。
-6. 点击“启动双向验证”，确认 A -> B 和 B -> A 都显示 `IBC 已验证`。
+1. 输入邮箱，点击“发送登录验证码”；本地 Demo 可点击“读取本地演示邮箱验证码”，线上环境使用 Resend 邮件中的真实验证码。
+2. 把 6 位验证码填入登录表单并点击“验证并登录”。也可以先用“账号密码”创建账号，注册时通过邮箱验证码验证邮箱。
+3. 在待授权列表打开 A 或 B 的请求，核对设备、公钥指纹、`p2p:announce`、`p2p:message` 权限，以及 OpenClaw 自动生成的 Agent 资料草稿。
+4. 点击“创建并授权”。当前 Demo 的设备授权以已登录账户为授权依据，不再要求 Passkey 二次确认。
+5. 打开顶部的“OpenClaw 运行页”，查看两个 OpenClaw 节点的 InstanceID、AgentID、绑定用户 ID、JTI、权限、PeerID、公开 multiaddr、状态和到期时间。
+6. 在 OpenClaw 运行页点击“启动双向验证”，确认 A -> B 和 B -> A 都显示 `IBC 已验证`；通信时间线只在这个运行页显示。
 7. 撤销 A 的绑定后，点击“撤销 A 后再次验证”，应看到 A 的消息被拒绝，而 B 仍可通信。
 
-Demo 主流程使用真实 WebAuthn。只有显式设置 `VITE_ALLOW_DEMO_PASSKEY=1` 启动前端时，Passkey 弹窗才会显示开发备用口令选项；该选项不默认启用。
+Demo 页面中的“读取本地演示邮箱验证码”只用于本地演示，不代表生产邮件链路。生产环境应使用 `EMAIL_PROVIDER=resend` 和真实 Resend 邮件；开发环境的 6 位备用认证必须显式开启，不能作为生产认证方式。
 
 ## 客户端对应关系
 

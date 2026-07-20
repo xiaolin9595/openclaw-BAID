@@ -69,6 +69,10 @@ async function clientStatus(nodeId) {
   const binding = await readJson(path.join(stateDir, "libp2p", "agentid-binding.json"));
   const remote = binding?.jti ? await fetchJson(`${ISSUER_URL}/v1/instance-bindings/${encodeURIComponent(binding.jti)}/status`) : undefined;
   const remoteStatus = remote?.ok && typeof remote.body?.binding?.status === "string" ? remote.body.binding.status : undefined;
+  const publicRecord = binding?.agentId ? await fetchJson(`${ISSUER_URL}/v1/public/agents/${encodeURIComponent(binding.agentId)}`) : undefined;
+  const publicConnection = publicRecord?.ok && publicRecord.body?.profile && typeof publicRecord.body.profile === "object"
+    ? (publicRecord.body.profile.connection ?? null)
+    : null;
   const processInfo = children.get(`gateway-${nodeId}`);
   const linkInfo = children.get(`link-${nodeId}`);
   return {
@@ -87,6 +91,7 @@ async function clientStatus(nodeId) {
     expiresAt: binding?.expiresAt ? new Date(binding.expiresAt * 1000).toISOString() : null,
     lastStatusCheckAt: binding?.lastStatusCheckAt ? new Date(binding.lastStatusCheckAt).toISOString() : null,
     error: processInfo?.error ?? linkInfo?.error ?? null,
+    connection: publicConnection,
   };
 }
 
@@ -244,6 +249,8 @@ async function configureProfile(profile) {
   run(OPENCLAW_BIN, [...common, "plugins.entries.libp2p-mesh.config.agentId.trustedIssuers", JSON.stringify([ISSUER_URL]), "--strict-json"], { cwd: MESH_DIR });
   run(OPENCLAW_BIN, [...common, "plugins.entries.libp2p-mesh.config.agentId.mode", JSON.stringify("strict"), "--strict-json"], { cwd: MESH_DIR });
   run(OPENCLAW_BIN, [...common, "plugins.entries.libp2p-mesh.config.agentId.revocationCacheMaxAgeSeconds", "3", "--strict-json"], { cwd: MESH_DIR });
+  run(OPENCLAW_BIN, [...common, "plugins.entries.libp2p-mesh.config.agentId.publicConnection.enabled", "true", "--strict-json"], { cwd: MESH_DIR });
+  run(OPENCLAW_BIN, [...common, "plugins.entries.libp2p-mesh.config.agentId.publicConnection.allowDirectDial", "true", "--strict-json"], { cwd: MESH_DIR });
   run(OPENCLAW_BIN, [...common, "plugins.entries.libp2p-mesh.config.agentId.localBridge.enabled", "true", "--strict-json"], { cwd: MESH_DIR });
   run(OPENCLAW_BIN, [...common, "plugins.entries.libp2p-mesh.config.agentId.localBridge.port", String(profile === "a" ? 8799 : 8800), "--strict-json"], { cwd: MESH_DIR });
   run(OPENCLAW_BIN, [...common, "plugins.entries.libp2p-mesh.config.agentId.localBridge.allowedOrigins", JSON.stringify(["http://127.0.0.1:4173", "http://localhost:4173"]), "--strict-json"], { cwd: MESH_DIR });
