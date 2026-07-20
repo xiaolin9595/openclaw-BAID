@@ -319,6 +319,11 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
   const [connectionState, setConnectionState] = useState<"idle" | "pairing" | "dialing" | "verified" | "failed">("idle");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const visibleAttributes = agent.attributes.filter((attribute) => attribute.visible !== false);
+  const attributeGroups = [
+    { kind: "capability" as const, title: "能力", note: "可用于 Agent Discovery 的任务匹配" },
+    { kind: "tag" as const, title: "标签", note: "由 Agent 或所有者公开声明" },
+    { kind: "context" as const, title: "运行上下文", note: "帮助第三方理解运行环境" },
+  ].map((group) => ({ ...group, attributes: visibleAttributes.filter((attribute) => attribute.kind === group.kind) })).filter((group) => group.attributes.length > 0);
   const client = agent.demoBacked ? demo?.clients.a : null;
   const agentId = client?.agentId ?? agent.id;
   const isVerified = agent.status === "verified" && Boolean(agentId);
@@ -403,6 +408,7 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
           <div>
             <div className="agent-public-heading"><div className="agent-public-mark">{agent.initials}</div><div><p className="public-eyebrow">逻辑 Agent</p><h1 id="agent-title">{agent.name}</h1></div></div>
             <p className="agent-summary">{agent.summary} 这个页面只展示 Agent 主动公开的属性，不展示用户账户或设备私密信息。</p>
+            <div className="profile-facts" aria-label="Agent 基础资料"><span><small>角色</small><strong>{agent.role}</strong></span><span><small>运行环境</small><strong>{agent.language}</strong></span><span><small>公开属性</small><strong>{visibleAttributes.length} 项</strong></span></div>
             <div className="identity-line"><span className="identity-label">AgentID</span><code title={agentId}>{shorten(agentId, 50)}</code><button className="copy-button" type="button" onClick={copyAgentId} aria-label="复制 AgentID" title="复制 AgentID"><CopyOutlined /></button>{copied && <span className="copied-note">已复制</span>}</div>
             <div className="detail-actions"><button className="communication-button" type="button" onClick={() => setCommunicationOpen((value) => !value)} disabled={!isVerified}><MessageOutlined /> {communicationOpen ? "收起通信入口" : "发起通信"}</button><span>{agent.connection?.allowDiscovery ? "可请求本机 OpenClaw 建立连接" : "目标尚未公开连接地址"}</span></div>
           </div>
@@ -454,7 +460,7 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
       <section className="attribute-layout" aria-labelledby="attribute-title">
         <div className="attribute-main">
           <div className="section-heading"><div><p className="public-eyebrow">公开属性</p><h2 id="attribute-title">这个 Agent 能做什么</h2></div><span className="attribute-count">{visibleAttributes.length} 项公开信息</span></div>
-          <div className="attribute-table">{visibleAttributes.map((attribute, index) => <div className="attribute-row" key={`${attribute.key}-${attribute.value}`} style={{ animationDelay: `${index * 60}ms` }}><div className={`attribute-icon ${attribute.kind}`} aria-hidden="true">{attributeIcon(attribute.kind)}</div><div className="attribute-copy"><strong>{attribute.value}</strong><span>{attribute.label}</span></div><span className="trust-label">{attribute.trust === "self_declared" ? "自声明" : "已验证"}</span></div>)}</div>
+          <div className="attribute-groups">{attributeGroups.map((group) => <section className="attribute-group" key={group.kind}><div className="attribute-group-heading"><div><strong>{group.title}</strong><span>{group.note}</span></div><em>{group.attributes.length} 项</em></div><div className="attribute-table">{group.attributes.map((attribute, index) => <div className="attribute-row" key={`${attribute.key}-${attribute.value}`} style={{ animationDelay: `${index * 60}ms` }}><div className={`attribute-icon ${attribute.kind}`} aria-hidden="true">{attributeIcon(attribute.kind)}</div><div className="attribute-copy"><strong>{attribute.value}</strong><span>{attribute.label}</span></div><span className="trust-label">{attribute.trust === "self_declared" ? "自声明" : "已验证"}</span></div>)}</div></section>)}</div>
           <div className="trust-note"><SafetyCertificateOutlined /><p><strong>身份验证不等于能力验证。</strong> 上述能力由 Agent 所有者公开声明，AgentID 身份由身份服务验证。</p></div>
         </div>
         <aside className="attribute-aside"><div className="aside-section"><p className="public-eyebrow">连接状态</p><div className="presence-value"><span className="presence-ring" />{presence}</div><p className="aside-copy">网站不伪造在线状态。只有收到可靠心跳或发现数据时，才会更新为在线或最近活跃。</p></div><div className="aside-section"><p className="public-eyebrow">授权摘要</p><dl className="summary-list">{/* Instance ID and binding count intentionally stay out of the public Agent page. */}<div><dt>公开协议</dt><dd>P2P Mesh</dd></div><div><dt>凭证</dt><dd>{formatDate(client?.expiresAt ?? null)}</dd></div></dl></div><div className="aside-share"><ShareAltOutlined /><div><strong>分享这个 Agent</strong><span>公开页面不包含完整 IBC、Instance ID 或设备详情</span></div></div></aside>

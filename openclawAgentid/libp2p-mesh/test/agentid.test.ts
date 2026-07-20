@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   AgentIdBindingStatusCache,
   AgentIdJwksCache,
+  buildAgentProfileDraft,
   getAgentIdStatusRefreshIntervalSeconds,
   linkAgentId,
   loadAgentIdBinding,
@@ -39,6 +40,19 @@ const identity: InstanceIdentity = {
   bindingComponents: { username: "lin", hostname: "mac", platform: "darwin" },
   createdAt: 1,
 };
+
+test("OpenClaw builds a complete public Agent profile before device authorization", () => {
+  const profile = buildAgentProfileDraft(identity, ["p2p:announce", "p2p:message"], [
+    { kind: "structured", key: "skill", value: "research", label: "能力", source: "profile" },
+    { kind: "structured", key: "project", value: "agent discovery", label: "项目", source: "profile" },
+  ]);
+  assert.equal(profile.role, "OpenClaw P2P Agent");
+  assert.equal(profile.language, "OpenClaw / TypeScript");
+  assert.ok(profile.attributes.some((attribute) => attribute.value === "agent-discovery" && attribute.kind === "capability"));
+  assert.ok(profile.attributes.some((attribute) => attribute.value === "openclaw" && attribute.kind === "tag"));
+  assert.ok(profile.attributes.some((attribute) => attribute.value === "research" && attribute.kind === "capability"));
+  assert.ok(profile.attributes.some((attribute) => attribute.value === "agent discovery" && attribute.kind === "context"));
+});
 
 function jsonResponse(status: number, body: unknown): Pick<Response, "ok" | "status" | "json"> {
   return {
@@ -235,7 +249,7 @@ test("linkAgentId omits agent_hint when no agent is selected and performs S256 P
   assert.equal(deviceBodies[0].scope, "p2p:announce p2p:message");
   const profileDraft = JSON.parse(String(deviceBodies[0].agent_profile)) as Record<string, unknown>;
   assert.equal(profileDraft.role, "OpenClaw P2P Agent");
-  assert.equal(profileDraft.language, "OpenClaw / libp2p-mesh");
+  assert.equal(profileDraft.language, "OpenClaw / TypeScript");
   assert.ok((profileDraft.attributes as Array<Record<string, unknown>>).some((attribute) => attribute.value === identity.bindingComponents.platform));
   assert.deepEqual(sleeps, [5000, 5000, 7000]);
   assert.equal(result.binding.agentId, "did:agentid:agt_travel");

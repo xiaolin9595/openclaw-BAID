@@ -112,6 +112,52 @@ export type LinkAgentIdOptions = {
   onDeviceAuthorization?: (authorization: DeviceAuthorization) => void;
 };
 
+export type AgentProfileDraft = {
+  summary: string;
+  role: string;
+  language: string;
+  attributes: Array<{
+    key: string;
+    label: string;
+    value: string;
+    kind: "capability" | "tag" | "context";
+  }>;
+};
+
+/** Build public facts this plugin can support without claiming model-specific skills. */
+export function buildAgentProfileDraft(
+  identity: InstanceIdentity,
+  scopes: Array<"p2p:announce" | "p2p:message"> = ["p2p:announce", "p2p:message"],
+  profileAttributes: UserPublicAttribute[] = [],
+): AgentProfileDraft {
+  const attributes: AgentProfileDraft["attributes"] = [
+    ...scopes.map((scope) => ({ key: scope, label: "通信能力", value: scope, kind: "capability" as const })),
+    { key: "agent-discovery", label: "发现能力", value: "agent-discovery", kind: "capability" as const },
+    { key: "identity-verification", label: "身份能力", value: "identity-verification", kind: "capability" as const },
+    { key: "p2p-mesh", label: "网络能力", value: "p2p-mesh", kind: "capability" as const },
+    { key: "openclaw", label: "运行生态", value: "openclaw", kind: "tag" as const },
+    { key: "libp2p", label: "网络协议", value: "libp2p", kind: "tag" as const },
+    { key: "runtime", label: "运行时", value: "OpenClaw Gateway", kind: "context" as const },
+    { key: "transport", label: "通信传输", value: "libp2p", kind: "context" as const },
+    { key: "platform", label: "运行平台", value: identity.bindingComponents.platform, kind: "context" as const },
+  ];
+  const seen = new Set(attributes.map((attribute) => `${attribute.kind}:${attribute.key}:${attribute.value}`));
+  for (const attribute of profileAttributes) {
+    const kind = attribute.kind === "tag" ? "tag" : attribute.kind === "structured" && ["skill", "capability"].includes(attribute.key) ? "capability" : "context";
+    const key = attribute.kind === "structured" ? attribute.key : "tag";
+    const dedupeKey = `${kind}:${key}:${attribute.value}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    attributes.push({ key, label: attribute.label, value: attribute.value, kind });
+  }
+  return {
+    summary: `OpenClaw Agent on ${identity.name}，支持 P2P 发现、身份验证和安全消息通信。`,
+    role: "OpenClaw P2P Agent",
+    language: "OpenClaw / TypeScript",
+    attributes,
+  };
+}
+
 export type DeviceAuthorization = {
   requestId: string;
   deviceCode: string;
@@ -553,21 +599,7 @@ export async function linkAgentId(options: LinkAgentIdOptions): Promise<AgentIdL
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const requestedScopes = options.scopes ?? ["p2p:announce", "p2p:message"];
-  const agentProfile = {
-    summary: `OpenClaw Agent on ${options.identity.name}`,
-    role: "OpenClaw P2P Agent",
-    language: "OpenClaw / libp2p-mesh",
-    attributes: [
-      ...requestedScopes.map((scope) => ({ key: scope, label: "Communication scope", value: scope, kind: "capability" as const })),
-      { key: "platform", label: "Runtime platform", value: options.identity.bindingComponents.platform, kind: "context" as const },
-      ...(options.profileAttributes ?? []).map((attribute) => ({
-        key: attribute.kind === "structured" ? attribute.key : "tag",
-        label: attribute.label,
-        value: attribute.value,
-        kind: attribute.kind === "tag" ? "tag" as const : "context" as const,
-      })),
-    ],
-  };
+  const agentProfile = buildAgentProfileDraft(options.identity, requestedScopes, options.profileAttributes);
 
   const requested = await postForm(fetchImpl, new URL("/oauth/device_authorization", `${issuer}/`), {
     client_id: AGENTID_AUDIENCE,

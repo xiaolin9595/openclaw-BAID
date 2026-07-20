@@ -80,6 +80,10 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .agent-public-mark { display: grid; place-items: center; width: 66px; height: 66px; border: 1px solid rgba(167, 215, 197, .56); color: #c9e6da; background: rgba(255, 255, 255, .08); font: 700 18px/1 "IBM Plex Mono", monospace; }
 .detail-hero .public-eyebrow { margin: 0 0 10px; color: #9bc1b3; }
 .detail-hero h1 { margin: 0; color: #f7fbf8; font-size: clamp(32px, 5vw, 58px); line-height: 1; letter-spacing: 0; }
+.profile-facts { display: flex; flex-wrap: wrap; gap: 9px; margin: 22px 0 18px; }
+.profile-facts span { display: grid; gap: 4px; min-width: 140px; padding: 10px 12px; border: 1px solid rgba(164, 209, 194, .28); background: rgba(9, 21, 17, .2); }
+.profile-facts small { color: #8db0a2; font: 10px "IBM Plex Mono", monospace; text-transform: uppercase; }
+.profile-facts strong { color: #f1f8f4; font-size: 12px; }
 .agent-summary { max-width: 650px; margin: 28px 0 24px 84px; color: #bdd0c7; font-size: 15px; line-height: 1.8; }
 .identity-line { display: flex; align-items: center; gap: 10px; margin-left: 84px; color: #91b5a7; }
 .identity-label { color: #6f9889; font: 700 10px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
@@ -100,6 +104,12 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .section-heading h2 { margin: 0; font-size: 27px; line-height: 1.2; }
 .attribute-count { color: #73837b; font: 11px "IBM Plex Mono", monospace; }
 .attribute-table { border-bottom: 1px solid #d7dfda; }
+.attribute-groups { display: grid; gap: 23px; }
+.attribute-group-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 20px 0 10px; }
+.attribute-group-heading strong, .attribute-group-heading span { display: block; }
+.attribute-group-heading strong { color: #263c32; font-size: 14px; }
+.attribute-group-heading span { margin-top: 4px; color: #7a8981; font-size: 11px; }
+.attribute-group-heading em { color: #73837b; font: 11px "IBM Plex Mono", monospace; font-style: normal; }
 .attribute-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; gap: 16px; align-items: center; min-height: 76px; border-bottom: 1px solid #e1e6e2; animation: rise-in .45s both; }
 .attribute-icon { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #cbd8d1; color: #147d72; background: #f1f7f3; font-size: 15px; }
 .attribute-icon.tag { color: #8a5600; background: #fff8eb; border-color: #e9d7af; }

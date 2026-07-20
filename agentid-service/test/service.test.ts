@@ -450,7 +450,8 @@ test("website session, login-based device grant, IBC and revocation", async (t) 
   assert.equal(createdProfile.published, true);
   assert.equal(createdProfile.role, "Research assistant");
   assert.equal(createdProfile.summary, "A research assistant running on OpenClaw.");
-  assert.deepEqual((createdProfile.attributes as Array<Record<string, unknown>>).map((attribute) => attribute.value), ["p2p:announce", "p2p:message", "research"]);
+  const createdAttributeValues = (createdProfile.attributes as Array<Record<string, unknown>>).map((attribute) => attribute.value);
+  assert.ok(["p2p:announce", "p2p:message", "agent-discovery", "identity-verification", "p2p-mesh", "openclaw", "libp2p", "OpenClaw Gateway", "darwin", "New Agent Instance", "research"].every((value) => createdAttributeValues.includes(value)));
   assert.ok((createdProfile.attributes as Array<Record<string, unknown>>).filter((attribute) => attribute.value.startsWith("p2p:")).every((attribute) => attribute.trust === "verified"));
   assert.equal((createdProfile.attributes as Array<Record<string, unknown>>).find((attribute) => attribute.value === "research")?.trust, "self_declared");
   const publicCreatedAgents = await app.inject({ method: "GET", url: "/v1/public/agents" });

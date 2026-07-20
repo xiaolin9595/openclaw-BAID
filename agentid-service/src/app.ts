@@ -129,7 +129,7 @@ function publicDirectoryAgent(agent: Agent): Omit<Agent, "ownerId"> {
   return safeAgent;
 }
 
-function defaultPublicProfile(agentId: string, published = false, scopes: Scope[] = [], draft: AgentProfileDraft | null = null): AgentPublicProfile {
+function defaultPublicProfile(agentId: string, published = false, scopes: Scope[] = [], draft: AgentProfileDraft | null = null, platform = "", instanceLabel = ""): AgentPublicProfile {
   const attributes: AgentPublicProfile["attributes"] = scopes.map((scope) => ({
     key: scope,
     label: "通信权限",
@@ -139,6 +139,20 @@ function defaultPublicProfile(agentId: string, published = false, scopes: Scope[
     visible: true,
   }));
   const verifiedKeys = new Set(attributes.map((attribute) => `${attribute.key}:${attribute.value}`));
+  const automaticAttributes: AgentPublicProfile["attributes"] = scopes.length ? [
+    { key: "agent-discovery", label: "发现能力", value: "agent-discovery", kind: "capability", trust: "self_declared", visible: true },
+    { key: "identity-verification", label: "身份能力", value: "identity-verification", kind: "capability", trust: "self_declared", visible: true },
+    { key: "p2p-mesh", label: "网络能力", value: "p2p-mesh", kind: "capability", trust: "self_declared", visible: true },
+    { key: "openclaw", label: "运行生态", value: "openclaw", kind: "tag", trust: "self_declared", visible: true },
+    { key: "libp2p", label: "网络协议", value: "libp2p", kind: "tag", trust: "self_declared", visible: true },
+    { key: "runtime", label: "运行时", value: "OpenClaw Gateway", kind: "context", trust: "self_declared", visible: true },
+    { key: "transport", label: "通信传输", value: "libp2p", kind: "context", trust: "self_declared", visible: true },
+    ...(platform ? [{ key: "platform", label: "运行平台", value: platform, kind: "context" as const, trust: "self_declared" as const, visible: true }] : []),
+    ...(instanceLabel ? [{ key: "instance", label: "实例名称", value: instanceLabel, kind: "context" as const, trust: "self_declared" as const, visible: true }] : []),
+  ] : [];
+  for (const attribute of automaticAttributes) {
+    if (!verifiedKeys.has(`${attribute.key}:${attribute.value}`)) attributes.push(attribute);
+  }
   for (const attribute of draft?.attributes ?? []) {
     const key = `${attribute.key}:${attribute.value}`;
     if (verifiedKeys.has(key)) continue;
@@ -146,9 +160,9 @@ function defaultPublicProfile(agentId: string, published = false, scopes: Scope[
   }
   return {
     agentId,
-    summary: draft?.summary || (scopes.length ? "OpenClaw Agent，支持已授权的 P2P 通信能力。" : ""),
+    summary: draft?.summary || (scopes.length ? `OpenClaw Agent${instanceLabel ? ` on ${instanceLabel}` : ""}，支持 P2P 发现、身份验证和安全消息通信。` : ""),
     role: draft?.role || (scopes.length ? "OpenClaw P2P Agent" : ""),
-    language: draft?.language || (scopes.length ? "OpenClaw / libp2p-mesh" : ""),
+    language: draft?.language || (scopes.length ? "OpenClaw / TypeScript" : ""),
     attributes,
     published,
     connection: { allowDiscovery: false, allowDirectDial: false, peerId: null, multiaddrs: [], relayMultiaddrs: [] },
@@ -1093,7 +1107,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
           await store.createAgent(agent, user.id);
           // An Agent created explicitly by OpenClaw is discoverable by default.
           // Connection endpoints remain private until the instance publishes them.
-          await store.saveAgentPublicProfile(defaultPublicProfile(agent.id, true, authorization.scopes, authorization.agentProfile));
+          await store.saveAgentPublicProfile(defaultPublicProfile(agent.id, true, authorization.scopes, authorization.agentProfile, authorization.platform, authorization.instanceLabel));
           await store.addAuditEvent(event({ actorUserId: user.id, agentId: agent.id, instanceId: authorization.instanceId, bindingJti: null, action: "agent_created_for_device_authorization", detail: { name } }));
           selectedAgentId = agent.id;
         }
