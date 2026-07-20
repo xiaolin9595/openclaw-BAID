@@ -61,9 +61,19 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "enabled": { "type": "boolean", "default": false },
+                  "enabled": { "type": "boolean", "default": true },
                   "port": { "type": "number", "minimum": 1024, "maximum": 65535, "default": 8799 },
                   "allowedOrigins": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "publicConnection": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": { "type": "boolean", "default": true },
+                  "allowDirectDial": { "type": "boolean", "default": true },
+                  "announceAddrs": { "type": "array", "items": { "type": "string" } },
+                  "relayMultiaddrs": { "type": "array", "items": { "type": "string" } }
                 }
               }
             }
@@ -142,9 +152,19 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "enabled": { "type": "boolean", "default": false },
+              "enabled": { "type": "boolean", "default": true },
               "port": { "type": "number", "minimum": 1024, "maximum": 65535, "default": 8799 },
               "allowedOrigins": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "publicConnection": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean", "default": true },
+              "allowDirectDial": { "type": "boolean", "default": true },
+              "announceAddrs": { "type": "array", "items": { "type": "string" } },
+              "relayMultiaddrs": { "type": "array", "items": { "type": "string" } }
             }
           }
         }

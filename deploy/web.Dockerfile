@@ -5,7 +5,7 @@ RUN npm ci
 COPY agentid-ui-demo ./
 ARG VITE_AGENTID_API_URL
 ENV VITE_AGENTID_API_URL=$VITE_AGENTID_API_URL
-RUN npm run build
+RUN npm run build:control-plane
 
 FROM caddy:2-alpine
 COPY --from=build /app/dist /srv

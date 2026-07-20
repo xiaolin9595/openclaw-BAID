@@ -25,6 +25,7 @@ export default defineConfig({
       input: {
         index: path.resolve(__dirname, 'index.html'),
         controlPlane: path.resolve(__dirname, 'control-plane.html'),
+        login: path.resolve(__dirname, 'login.html'),
         device: path.resolve(__dirname, 'device.html'),
         agentPublic: path.resolve(__dirname, 'agent-public.html'),
       },

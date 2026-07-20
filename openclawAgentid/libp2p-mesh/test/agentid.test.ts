@@ -10,8 +10,10 @@ import {
   getAgentIdStatusRefreshIntervalSeconds,
   linkAgentId,
   loadAgentIdBinding,
+  publishAgentIdConnection,
   refreshAgentIdBinding,
   saveAgentIdBinding,
+  serializeAgentIdConnectionPublication,
   unlinkAgentIdBinding,
   verifyAgentIdIbc,
   verifyAgentIdDiscoveryTicket,
@@ -231,6 +233,10 @@ test("linkAgentId omits agent_hint when no agent is selected and performs S256 P
   assert.equal(deviceBodies[0].code_challenge_method, "S256");
   assert.match(String(deviceBodies[0].code_challenge), /^[A-Za-z0-9_-]{43}$/);
   assert.equal(deviceBodies[0].scope, "p2p:announce p2p:message");
+  const profileDraft = JSON.parse(String(deviceBodies[0].agent_profile)) as Record<string, unknown>;
+  assert.equal(profileDraft.role, "OpenClaw P2P Agent");
+  assert.equal(profileDraft.language, "OpenClaw / libp2p-mesh");
+  assert.ok((profileDraft.attributes as Array<Record<string, unknown>>).some((attribute) => attribute.value === identity.bindingComponents.platform));
   assert.deepEqual(sleeps, [5000, 5000, 7000]);
   assert.equal(result.binding.agentId, "did:agentid:agt_travel");
   assert.equal(result.binding.instanceId, identity.id);
@@ -264,6 +270,54 @@ test("linkAgentId requests explicit AgentID creation and rejects conflicting sel
   assert.equal(deviceBodies[0]?.agent_hint, undefined);
   assert.equal(result.binding.agentId, "did:agentid:agt_travel");
   await assert.rejects(() => linkAgentId({ issuer, identity, agentId: "did:agentid:agt_existing", createAgent: true, fetch }), /cannot be used together/);
+});
+
+test("publishAgentIdConnection signs the canonical connection publication", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const generated = generateInstanceIdentity({ name: "published-node" });
+  const binding: AgentIdBindingFile = {
+    version: 1,
+    issuer,
+    agentId: "did:agentid:agt_travel",
+    instanceId: generated.id,
+    instancePublicKey: generated.pubkey,
+    jti: "binding-publish-1",
+    expiresAt: 9_000_000,
+    linkedAt: 2_000_000,
+    instanceBinding: "a.b.c",
+  };
+  const fetch: AgentIdFetch = async (input, init) => {
+    requests.push({ url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+    return jsonResponse(200, { connection: { allowDiscovery: true } });
+  };
+  const timestamp = 2_000_000;
+  const result = await publishAgentIdConnection({
+    binding,
+    identity: { id: generated.id, name: generated.name, pubkey: generated.pubkey, binding: generated.binding, bindingComponents: generated.bindingComponents, createdAt: generated.createdAt },
+    peerId: "12D3KooWPublished",
+    multiaddrs: ["/ip4/203.0.113.10/tcp/4001/p2p/12D3KooWPublished"],
+    relayMultiaddrs: [],
+    now: () => timestamp * 1000,
+    signMessage: (message) => sign(null, Buffer.from(message), { key: Buffer.from(generated.privkey, "base64url"), format: "der", type: "pkcs8" }).toString("base64url"),
+    fetch,
+  });
+  assert.equal(result, undefined);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, `${issuer}/v1/instance-bindings/${binding.jti}/connection`);
+  const body = requests[0]!.body;
+  const { signature, ...unsigned } = body;
+  assert.equal(typeof signature, "string");
+  assert.equal(body.instanceId, generated.id);
+  assert.equal(body.agentId, binding.agentId);
+  assert.equal(body.timestamp, timestamp);
+  assert.equal(
+    verifyInstanceSignature(
+      { id: generated.id, name: generated.name, pubkey: generated.pubkey, binding: generated.binding, bindingComponents: generated.bindingComponents, createdAt: generated.createdAt },
+      serializeAgentIdConnectionPublication(unsigned as Parameters<typeof serializeAgentIdConnectionPublication>[0]),
+      String(signature),
+    ),
+    true,
+  );
 });
 
 test("AgentID binding is atomically stored with restricted file permissions and can be removed", async () => {

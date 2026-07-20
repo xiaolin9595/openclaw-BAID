@@ -1,6 +1,6 @@
 import path from "node:path";
 
-export const CURRENT_SCHEMA_MIGRATION = "014_agent_creation_requested.sql";
+export const CURRENT_SCHEMA_MIGRATION = "015_agent_profile_draft.sql";
 
 export interface RateLimitSetting {
   max: number;

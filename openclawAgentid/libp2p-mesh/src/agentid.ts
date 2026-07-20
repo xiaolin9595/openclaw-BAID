@@ -2,7 +2,7 @@ import { createHash, createPublicKey, randomBytes, randomUUID, verify, type webc
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { AgentIdConfig, InstanceIdentity } from "./types.js";
+import type { AgentIdConfig, InstanceIdentity, UserPublicAttribute } from "./types.js";
 
 export const AGENTID_AUDIENCE = "openclaw-libp2p-mesh";
 const DEFAULT_JWKS_TTL_MS = 5 * 60 * 1000;
@@ -104,6 +104,7 @@ export type LinkAgentIdOptions = {
   createAgent?: boolean;
   identity: InstanceIdentity;
   scopes?: Array<"p2p:announce" | "p2p:message">;
+  profileAttributes?: UserPublicAttribute[];
   fetch?: AgentIdFetch;
   cache?: AgentIdJwksCache;
   now?: () => number;
@@ -130,6 +131,19 @@ export type AgentIdRenewOptions = {
   identity: InstanceIdentity;
   signMessage: (message: string) => string;
   config?: AgentIdConfig;
+  fetch?: AgentIdFetch;
+  now?: () => number;
+};
+
+export type AgentIdConnectionPublication = {
+  binding: AgentIdBindingFile;
+  identity: InstanceIdentity;
+  signMessage: (message: string) => string;
+  peerId: string;
+  multiaddrs: string[];
+  relayMultiaddrs?: string[];
+  allowDiscovery?: boolean;
+  allowDirectDial?: boolean;
   fetch?: AgentIdFetch;
   now?: () => number;
 };
@@ -315,6 +329,55 @@ export async function renewAgentIdBinding(options: AgentIdRenewOptions): Promise
   return { ...options.binding, issuer, jti: verified.claims.jti, expiresAt: verified.claims.exp, linkedAt: (options.now ?? Date.now)(), instanceBinding, status: "active", lastStatusCheckAt: (options.now ?? Date.now)() };
 }
 
+export function serializeAgentIdConnectionPublication(input: {
+  jti: string;
+  agentId: string;
+  instanceId: string;
+  instancePublicKey: string;
+  peerId: string;
+  multiaddrs: string[];
+  relayMultiaddrs: string[];
+  allowDiscovery: boolean;
+  allowDirectDial: boolean;
+  timestamp: number;
+}): string {
+  return JSON.stringify({
+    jti: input.jti,
+    agentId: input.agentId,
+    instanceId: input.instanceId,
+    instancePublicKey: input.instancePublicKey,
+    peerId: input.peerId,
+    multiaddrs: input.multiaddrs,
+    relayMultiaddrs: input.relayMultiaddrs,
+    allowDiscovery: input.allowDiscovery,
+    allowDirectDial: input.allowDirectDial,
+    timestamp: input.timestamp,
+  });
+}
+
+export async function publishAgentIdConnection(options: AgentIdConnectionPublication): Promise<void> {
+  const fetchImpl = options.fetch ?? fetch;
+  const now = options.now ?? Date.now;
+  const issuer = normalizeIssuer(options.binding.issuer);
+  const payload = {
+    jti: options.binding.jti,
+    agentId: options.binding.agentId,
+    instanceId: options.identity.id,
+    instancePublicKey: options.identity.pubkey,
+    peerId: options.peerId,
+    multiaddrs: [...options.multiaddrs],
+    relayMultiaddrs: [...(options.relayMultiaddrs ?? [])],
+    allowDiscovery: options.allowDiscovery !== false,
+    allowDirectDial: options.allowDirectDial !== false,
+    timestamp: Math.floor(now() / 1000),
+  };
+  const response = await postJson(fetchImpl, new URL(`/v1/instance-bindings/${encodeURIComponent(options.binding.jti)}/connection`, `${issuer}/`), {
+    ...payload,
+    signature: options.signMessage(serializeAgentIdConnectionPublication(payload)),
+  });
+  if (!response.response.ok || !isRecord(response.body)) throw serviceError("public connection publication", response.body);
+}
+
 export function getTrustedAgentIdIssuers(config?: AgentIdConfig): string[] {
   const values = [config?.issuer, ...(config?.trustedIssuers ?? [])];
   const issuers = new Set<string>();
@@ -490,6 +553,21 @@ export async function linkAgentId(options: LinkAgentIdOptions): Promise<AgentIdL
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const requestedScopes = options.scopes ?? ["p2p:announce", "p2p:message"];
+  const agentProfile = {
+    summary: `OpenClaw Agent on ${options.identity.name}`,
+    role: "OpenClaw P2P Agent",
+    language: "OpenClaw / libp2p-mesh",
+    attributes: [
+      ...requestedScopes.map((scope) => ({ key: scope, label: "Communication scope", value: scope, kind: "capability" as const })),
+      { key: "platform", label: "Runtime platform", value: options.identity.bindingComponents.platform, kind: "context" as const },
+      ...(options.profileAttributes ?? []).map((attribute) => ({
+        key: attribute.kind === "structured" ? attribute.key : "tag",
+        label: attribute.label,
+        value: attribute.value,
+        kind: attribute.kind === "tag" ? "tag" as const : "context" as const,
+      })),
+    ],
+  };
 
   const requested = await postForm(fetchImpl, new URL("/oauth/device_authorization", `${issuer}/`), {
     client_id: AGENTID_AUDIENCE,
@@ -502,6 +580,7 @@ export async function linkAgentId(options: LinkAgentIdOptions): Promise<AgentIdL
     code_challenge: challenge,
     code_challenge_method: "S256",
     scope: requestedScopes.join(" "),
+    agent_profile: JSON.stringify(agentProfile),
   });
   if (!requested.response.ok) throw serviceError("device authorization", requested.body);
   const authorization = parseDeviceAuthorization(requested.body);

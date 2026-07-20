@@ -407,7 +407,9 @@ With no `--agent`, the client omits `agent_hint` and the approval website select
 
 ### Public Agent discovery and local connection
 
-The public Agent directory can hand a short-lived Discovery Ticket to a local OpenClaw gateway. When `agentId.localBridge.enabled` is enabled, the gateway listens on loopback only (default `http://127.0.0.1:8799`) and the public Agent detail page can request a local dial without receiving the Instance private key.
+The public Agent directory can hand a short-lived Discovery Ticket to a local OpenClaw gateway. When an AgentID issuer is configured, the loopback bridge is enabled by default (set `agentId.localBridge.enabled: false` to opt out), listens only on `http://127.0.0.1:8799`, and the public Agent detail page can request a local dial without receiving the Instance private key. The default browser allowlist includes the local Demo origins and `https://xiaolin9595.github.io`; use `agentId.localBridge.allowedOrigins` to replace it for another deployment.
+
+After the mesh starts with an active binding, OpenClaw automatically publishes a signed connection record containing the PeerID and runtime multiaddrs. The identity service accepts this only when the JTI, AgentID, InstanceID, public key, and Ed25519 proof match the active binding. Set `agentId.publicConnection.announceAddrs` to explicitly publish externally reachable addresses, and `agentId.publicConnection.relayMultiaddrs` for relay addresses. Runtime listen addresses are used only as a fallback for local or explicitly configured deployments.
 
 ```bash
 openclaw libp2p-mesh agentid discover --query "translation" --capability text-generation

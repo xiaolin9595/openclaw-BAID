@@ -48,7 +48,7 @@ async function readBody(request: IncomingMessage): Promise<Record<string, unknow
 
 function allowedOrigin(request: IncomingMessage, configured?: string[], localPort?: number): string | undefined {
   const origin = typeof request.headers.origin === "string" ? request.headers.origin : undefined;
-  const allowed = [...(configured?.length ? configured : ["http://127.0.0.1:4173", "http://localhost:4173"]), ...(localPort ? [`http://127.0.0.1:${localPort}`] : [])];
+  const allowed = [...(configured?.length ? configured : ["http://127.0.0.1:4173", "http://localhost:4173", "https://xiaolin9595.github.io"]), ...(localPort ? [`http://127.0.0.1:${localPort}`] : [])];
   return origin && allowed.includes(origin) ? origin : undefined;
 }
 
@@ -142,7 +142,7 @@ export function createLocalConnectBridge(options: LocalBridgeOptions) {
         agentId: item.agent?.id ?? "",
         name: item.agent?.name ?? "Unnamed Agent",
         summary: item.profile?.summary ?? "",
-        capabilities: (item.profile?.attributes ?? []).filter((attribute) => attribute.key === "capability" && typeof attribute.value === "string").map((attribute) => attribute.value),
+        capabilities: (item.profile?.attributes ?? []).filter((attribute) => typeof attribute.value === "string" && (attribute.key === "capability" || attribute.key?.startsWith("capability:") || (attribute as { kind?: string }).kind === "capability")).map((attribute) => attribute.value),
         connectable: Boolean(item.profile?.connection?.allowDiscovery),
       })).filter((item) => item.agentId && item.connectable);
       logger?.info?.(`[libp2p-mesh] AgentID directory queried results=${agents.length}`);
@@ -151,7 +151,7 @@ export function createLocalConnectBridge(options: LocalBridgeOptions) {
 
     if (url.pathname === "/v1/local/status" && request.method === "GET") {
       const identity = options.mesh.getInstanceIdentity();
-      return json(response, 200, { openclaw: "running", instanceId: identity?.id ?? null, pairingRequired: true, bridgePort: port }, origin);
+      return json(response, 200, { openclaw: "running", agentId: options.mesh.getAgentId?.() ?? null, instanceId: identity?.id ?? null, pairingRequired: true, bridgePort: port }, origin);
     }
 
     if (url.pathname === "/v1/local/pair" && request.method === "POST") {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createPublicKey, verify } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
 import test from "node:test";
 import { ResendMagicLinkDelivery, TestMagicLinkDelivery, TestWebAuthnAdapter } from "../src/auth.js";
 import { buildApp } from "../src/app.js";
@@ -104,6 +104,26 @@ test("cross-origin web sessions use a secure None cookie", async (t) => {
   const start = await app.inject({ method: "POST", url: "/v1/auth/email-code/start", headers: { origin: config.webOrigin, "content-type": "application/json", "x-agentid-request": "1" }, payload: { email: "cross-origin@example.com" } });
   assert.equal(start.statusCode, 202);
   const consume = await app.inject({ method: "POST", url: "/v1/auth/email-code/consume", headers: { origin: config.webOrigin, "content-type": "application/json", "x-agentid-request": "1" }, payload: { email: "cross-origin@example.com", code: delivery.sent[0]!.code } });
+  assert.equal(consume.statusCode, 200);
+  assert.match(String(consume.headers["set-cookie"]), /SameSite=None/);
+  assert.match(String(consume.headers["set-cookie"]), /Secure/);
+});
+
+test("a local development console gets a cross-site session cookie when the API is remote", async (t) => {
+  const config = {
+    ...testConfig(),
+    webOrigin: "https://agentid-baid.site",
+    issuerUrl: "https://agentid-baid.site",
+    webBaseUrl: "https://agentid-baid.site/",
+    allowedWebOrigins: new Set(["https://agentid-baid.site", "http://127.0.0.1:4173"]),
+  };
+  const delivery = new TestMagicLinkDelivery();
+  const app = await buildApp({ config, store: new MemoryStore(), issuerKey: await loadIssuerKey({ allowDevelopmentGeneration: true }), magicLinkDelivery: delivery, webAuthn: new TestWebAuthnAdapter() });
+  t.after(async () => app.close());
+
+  const start = await app.inject({ method: "POST", url: "/v1/auth/email-code/start", headers: { origin: "http://127.0.0.1:4173", "content-type": "application/json", "x-agentid-request": "1" }, payload: { email: "local-console@example.com" } });
+  assert.equal(start.statusCode, 202);
+  const consume = await app.inject({ method: "POST", url: "/v1/auth/email-code/consume", headers: { origin: "http://127.0.0.1:4173", "content-type": "application/json", "x-agentid-request": "1" }, payload: { email: "local-console@example.com", code: delivery.sent[0]!.code } });
   assert.equal(consume.statusCode, 200);
   assert.match(String(consume.headers["set-cookie"]), /SameSite=None/);
   assert.match(String(consume.headers["set-cookie"]), /Secure/);
@@ -396,6 +416,12 @@ test("website session, login-based device grant, IBC and revocation", async (t) 
       instance_public_key: "MCowBQYDK2VwAyEAnew-agent",
       instance_label: "New Agent Instance",
       platform: "darwin",
+      agent_profile: JSON.stringify({
+        summary: "A research assistant running on OpenClaw.",
+        role: "Research assistant",
+        language: "OpenClaw / libp2p-mesh",
+        attributes: [{ key: "skill", label: "Skill", value: "research", kind: "capability" }],
+      }),
       code_challenge: sha256(createVerifier),
       code_challenge_method: "S256",
     }),
@@ -404,8 +430,10 @@ test("website session, login-based device grant, IBC and revocation", async (t) 
   const createDeviceBody = json(createDevice);
   const createApproval = await app.inject({ method: "GET", url: `/v1/approvals/${createDeviceBody.request_id}`, headers: { cookie: magicCookie } });
   assert.equal(createApproval.statusCode, 200);
-  assert.equal((json(createApproval).approval as Record<string, unknown>).agentCreationRequested, true);
-  assert.equal((json(createApproval).approval as Record<string, unknown>).agentId, null);
+  const createApprovalBody = json(createApproval).approval as Record<string, unknown>;
+  assert.equal(createApprovalBody.agentCreationRequested, true);
+  assert.equal(createApprovalBody.agentId, null);
+  assert.equal((createApprovalBody.agentProfile as Record<string, unknown>).summary, "A research assistant running on OpenClaw.");
   const createdApproval = await app.inject({
     method: "POST",
     url: `/v1/approvals/${createDeviceBody.request_id}/approve`,
@@ -416,6 +444,18 @@ test("website session, login-based device grant, IBC and revocation", async (t) 
   const createdBinding = json(createdApproval).binding as Record<string, unknown>;
   assert.match(String(createdBinding.agentId), /^did:agentid:agt_/);
   assert.notEqual(createdBinding.agentId, agentId);
+  const createdProfileResponse = await app.inject({ method: "GET", url: `/v1/agents/${encodeURIComponent(String(createdBinding.agentId))}/public-profile`, headers: { cookie: magicCookie } });
+  assert.equal(createdProfileResponse.statusCode, 200);
+  const createdProfile = json(createdProfileResponse).profile as Record<string, unknown>;
+  assert.equal(createdProfile.published, true);
+  assert.equal(createdProfile.role, "Research assistant");
+  assert.equal(createdProfile.summary, "A research assistant running on OpenClaw.");
+  assert.deepEqual((createdProfile.attributes as Array<Record<string, unknown>>).map((attribute) => attribute.value), ["p2p:announce", "p2p:message", "research"]);
+  assert.ok((createdProfile.attributes as Array<Record<string, unknown>>).filter((attribute) => attribute.value.startsWith("p2p:")).every((attribute) => attribute.trust === "verified"));
+  assert.equal((createdProfile.attributes as Array<Record<string, unknown>>).find((attribute) => attribute.value === "research")?.trust, "self_declared");
+  const publicCreatedAgents = await app.inject({ method: "GET", url: "/v1/public/agents" });
+  assert.equal(publicCreatedAgents.statusCode, 200);
+  assert.ok((json(publicCreatedAgents).agents as Array<Record<string, unknown>>).some((entry) => (entry.agent as Record<string, unknown>).id === createdBinding.agentId));
   const agentsAfterCreate = await app.inject({ method: "GET", url: "/v1/me/agents", headers: { cookie: magicCookie } });
   assert.equal((json(agentsAfterCreate).agents as unknown[]).length, 2);
 
@@ -445,6 +485,67 @@ test("website session, login-based device grant, IBC and revocation", async (t) 
   assert.equal(typeof latestEvent.eventHash, "string");
   assert.equal(typeof latestEvent.previousHash, "string");
   assert.notEqual(latestEvent.eventHash, latestEvent.previousHash);
+});
+
+test("bound instances can publish signed public connection details", async (t) => {
+  const store = new MemoryStore();
+  const issuerKey = await loadIssuerKey({ allowDevelopmentGeneration: true });
+  const agentId = "did:agentid:agt_connection_test";
+  const instanceId = "connection-test@ed25519.test";
+  const keyPair = generateKeyPairSync("ed25519");
+  const instancePublicKey = keyPair.publicKey.export({ format: "der", type: "spki" }).toString("base64url");
+  const bindingJti = "binding-connection-test";
+  const now = new Date();
+  const agent = { id: agentId, name: "Connection test agent", ownerId: "usr_connection_test", status: "active" as const, createdAt: now.toISOString(), updatedAt: now.toISOString() };
+  await store.createUser({ id: agent.ownerId, username: "connection_test", email: "connection-test@example.com", passwordHash: null, displayName: "Connection Test", createdAt: now.toISOString(), emailVerifiedAt: now.toISOString() });
+  await store.createAgent(agent, agent.ownerId);
+  await store.saveAgentPublicProfile({ agentId, summary: "Connection test", role: "Test", language: "OpenClaw", attributes: [], published: true, updatedAt: now.toISOString() });
+  await store.createBinding({
+    jti: bindingJti,
+    agentId,
+    instanceId,
+    instancePublicKey,
+    publicKeyFingerprint: "connection-test-fingerprint",
+    instanceLabel: "Connection test instance",
+    platform: "test",
+    scopes: ["p2p:announce", "p2p:message"],
+    status: "active",
+    issuedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+    approvedByUserId: agent.ownerId,
+    revokedAt: null,
+    revokedByUserId: null,
+    revocationReason: null,
+    ibc: "test.ibc",
+  });
+  const app = await buildApp({ config: testConfig(), store, issuerKey, magicLinkDelivery: new TestMagicLinkDelivery(), webAuthn: new TestWebAuthnAdapter() });
+  t.after(async () => app.close());
+
+  const publication = {
+    jti: bindingJti,
+    agentId,
+    instanceId,
+    instancePublicKey,
+    peerId: "12D3KooWConnectionTest",
+    multiaddrs: ["/ip4/203.0.113.10/tcp/4001/p2p/12D3KooWConnectionTest"],
+    relayMultiaddrs: [],
+    allowDiscovery: true,
+    allowDirectDial: true,
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+  const serialized = JSON.stringify(publication);
+  const signature = sign(null, Buffer.from(serialized), keyPair.privateKey).toString("base64url");
+  const response = await app.inject({ method: "POST", url: `/v1/instance-bindings/${bindingJti}/connection`, headers: { "content-type": "application/json" }, payload: { ...publication, signature } });
+  assert.equal(response.statusCode, 200);
+  assert.equal((json(response).connection as Record<string, unknown>).peerId, publication.peerId);
+
+  const publicAgent = await app.inject({ method: "GET", url: `/v1/public/agents/${encodeURIComponent(agentId)}` });
+  assert.equal(publicAgent.statusCode, 200);
+  assert.equal(((json(publicAgent).profile as Record<string, unknown>).connection as Record<string, unknown>).allowDiscovery, true);
+
+  const tampered = await app.inject({ method: "POST", url: `/v1/instance-bindings/${bindingJti}/connection`, headers: { "content-type": "application/json" }, payload: { ...publication, peerId: "12D3KooWTampered", signature } });
+  assert.equal(tampered.statusCode, 401);
+  assert.equal((json(tampered).error as Record<string, unknown>).code, "INVALID_CONNECTION_PROOF");
 });
 
 test("health, metrics and configurable rate limits expose safe operational signals", async (t) => {

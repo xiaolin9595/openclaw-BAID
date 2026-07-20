@@ -83,7 +83,7 @@ export function registerLibp2pMeshWithDeps(
     peerLabelStore,
     publicAttributeRefreshInitiallyEnabled: false,
   });
-  const localConnectBridge = config.agentId?.localBridge?.enabled
+  const localConnectBridge = config.agentId?.issuer && config.agentId.localBridge?.enabled !== false
     ? createLocalConnectBridge({ mesh, router, config: config.agentId, logger: api.logger })
     : undefined;
 

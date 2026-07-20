@@ -71,6 +71,13 @@ export interface AgentIdConfig {
     port?: number;
     allowedOrigins?: string[];
   };
+  /** Publish this bound instance as a connectable public Agent endpoint. */
+  publicConnection?: {
+    enabled?: boolean;
+    allowDirectDial?: boolean;
+    announceAddrs?: string[];
+    relayMultiaddrs?: string[];
+  };
 }
 
 export type AgentConnectionStatus = "candidate" | "awaiting_confirmation" | "dialing" | "handshake" | "verified" | "disconnected" | "revoked" | "expired" | "blocked" | "failed";
@@ -475,6 +482,8 @@ export interface MeshNetwork {
   dial(multiaddr: string): Promise<void>;
   /** Get the OpenClaw instance identity (lightweight BAID-inspired ID) */
   getInstanceIdentity(): InstanceIdentity | undefined;
+  /** Get the locally active AgentID, if this instance has a verified binding. */
+  getAgentId?(): string | undefined;
   /** Inspect which NAT-traversal services are running and whether any relay reservations are active */
   getNATStatus(): NATTraversalStatus;
 }

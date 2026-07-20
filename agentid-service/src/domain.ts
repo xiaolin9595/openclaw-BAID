@@ -62,6 +62,13 @@ export interface AgentPublicProfile {
   updatedAt: string;
 }
 
+export interface AgentProfileDraft {
+  summary: string;
+  role: string;
+  language: string;
+  attributes: Array<Pick<AgentPublicAttribute, "key" | "label" | "value" | "kind">>;
+}
+
 export interface PublicAgentRecord {
   agent: Agent;
   profile: AgentPublicProfile;
@@ -133,6 +140,7 @@ export interface DeviceAuthorization {
   instanceLabel: string;
   platform: string;
   scopes: Scope[];
+  agentProfile: AgentProfileDraft | null;
   codeChallenge: string;
   deviceCodeHash: string;
   pollIntervalSeconds: number;

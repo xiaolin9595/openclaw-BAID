@@ -3,6 +3,7 @@
 }
 
 agentid-baid.site {
+  tls /certs/live/agentid-baid.site/fullchain.pem /certs/live/agentid-baid.site/privkey.pem
   encode gzip
 
   @api path /v1/* /oauth/* /.well-known/* /health* /metrics*

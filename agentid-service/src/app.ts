@@ -9,7 +9,7 @@ import { z, ZodError } from "zod";
 import type { DevelopmentMailbox, MagicLinkDelivery, WebAuthnAdapter } from "./auth.js";
 import { expiryIso, hashPassword, hmacSha256, nowIso, randomEmailLoginCode, randomToken, safeEqual, sha256, verifyPassword, type IssuerKey } from "./crypto.js";
 import type { AppConfig } from "./config.js";
-import { ALLOWED_SCOPES, type Agent, type AgentMember, type AgentPublicConnection, type AgentPublicProfile, type AgentRole, type AuditEvent, type BindingRenewalChallenge, type DeviceAuthorization, type DeviceStatus, type InstanceBinding, type NewAuditEvent, type Scope, type Session, type Store, type User } from "./domain.js";
+import { ALLOWED_SCOPES, type Agent, type AgentMember, type AgentProfileDraft, type AgentPublicConnection, type AgentPublicProfile, type AgentRole, type AuditEvent, type BindingRenewalChallenge, type DeviceAuthorization, type DeviceStatus, type InstanceBinding, type NewAuditEvent, type Scope, type Session, type Store, type User } from "./domain.js";
 import { AppError, assertPresent } from "./errors.js";
 import { logOperationalAlert } from "./alerts.js";
 import { MetricsRegistry } from "./metrics.js";
@@ -30,8 +30,20 @@ const deviceFormSchema = z.object({
   instance_public_key: z.string().trim().min(1).max(4096),
   instance_label: z.string().trim().min(1).max(128),
   platform: z.string().trim().min(1).max(128),
+  agent_profile: z.string().trim().max(16000).optional(),
   code_challenge: z.string().trim().min(43).max(256),
   code_challenge_method: z.literal("S256"),
+});
+const agentProfileDraftSchema = z.object({
+  summary: z.string().trim().max(500),
+  role: z.string().trim().max(120),
+  language: z.string().trim().max(80),
+  attributes: z.array(z.object({
+    key: z.string().trim().min(1).max(80),
+    label: z.string().trim().min(1).max(80),
+    value: z.string().trim().min(1).max(120),
+    kind: z.enum(["capability", "tag", "context"]),
+  })).max(40),
 });
 const tokenFormSchema = z.object({
   grant_type: z.literal("urn:ietf:params:oauth:grant-type:device_code"),
@@ -67,6 +79,19 @@ const publicProfileSchema = z.object({
     multiaddrs: z.array(z.string().trim().min(1).max(2048)).max(32),
     relayMultiaddrs: z.array(z.string().trim().min(1).max(2048)).max(16),
   }).optional(),
+});
+const connectionPublicationSchema = z.object({
+  jti: z.string().trim().min(1).max(200),
+  agentId: z.string().trim().min(1).max(200),
+  instanceId: z.string().trim().min(1).max(512),
+  instancePublicKey: z.string().trim().min(1).max(4096),
+  peerId: z.string().trim().min(1).max(256),
+  multiaddrs: z.array(z.string().trim().min(1).max(2048)).max(32),
+  relayMultiaddrs: z.array(z.string().trim().min(1).max(2048)).max(16),
+  allowDiscovery: z.boolean(),
+  allowDirectDial: z.boolean(),
+  timestamp: z.number().int(),
+  signature: z.string().trim().min(1).max(4096),
 });
 const memberSchema = z.object({ email: emailSchema, role: z.enum(["admin", "viewer"]) });
 const memberRoleSchema = z.object({ role: z.enum(["admin", "viewer"]) });
@@ -104,8 +129,31 @@ function publicDirectoryAgent(agent: Agent): Omit<Agent, "ownerId"> {
   return safeAgent;
 }
 
-function defaultPublicProfile(agentId: string, published = false): AgentPublicProfile {
-  return { agentId, summary: "", role: "", language: "", attributes: [], published, connection: { allowDiscovery: false, allowDirectDial: false, peerId: null, multiaddrs: [], relayMultiaddrs: [] }, updatedAt: nowIso() };
+function defaultPublicProfile(agentId: string, published = false, scopes: Scope[] = [], draft: AgentProfileDraft | null = null): AgentPublicProfile {
+  const attributes: AgentPublicProfile["attributes"] = scopes.map((scope) => ({
+    key: scope,
+    label: "通信权限",
+    value: scope,
+    kind: "capability" as const,
+    trust: "verified" as const,
+    visible: true,
+  }));
+  const verifiedKeys = new Set(attributes.map((attribute) => `${attribute.key}:${attribute.value}`));
+  for (const attribute of draft?.attributes ?? []) {
+    const key = `${attribute.key}:${attribute.value}`;
+    if (verifiedKeys.has(key)) continue;
+    attributes.push({ ...attribute, trust: "self_declared", visible: true });
+  }
+  return {
+    agentId,
+    summary: draft?.summary || (scopes.length ? "OpenClaw Agent，支持已授权的 P2P 通信能力。" : ""),
+    role: draft?.role || (scopes.length ? "OpenClaw P2P Agent" : ""),
+    language: draft?.language || (scopes.length ? "OpenClaw / libp2p-mesh" : ""),
+    attributes,
+    published,
+    connection: { allowDiscovery: false, allowDirectDial: false, peerId: null, multiaddrs: [], relayMultiaddrs: [] },
+    updatedAt: nowIso(),
+  };
 }
 
 function managedPublicProfile(profile: AgentPublicProfile): AgentPublicProfile {
@@ -154,6 +202,30 @@ function userIdHash(userId: string, dependencies: AppDependencies): string {
   return hmacSha256(userId, dependencies.config.userIdHashSecret);
 }
 
+function serializeConnectionPublication(body: z.infer<typeof connectionPublicationSchema>): string {
+  return JSON.stringify({
+    jti: body.jti,
+    agentId: body.agentId,
+    instanceId: body.instanceId,
+    instancePublicKey: body.instancePublicKey,
+    peerId: body.peerId,
+    multiaddrs: body.multiaddrs,
+    relayMultiaddrs: body.relayMultiaddrs,
+    allowDiscovery: body.allowDiscovery,
+    allowDirectDial: body.allowDirectDial,
+    timestamp: body.timestamp,
+  });
+}
+
+function verifyConnectionPublication(body: z.infer<typeof connectionPublicationSchema>): boolean {
+  try {
+    const publicKey = createPublicKey({ key: Buffer.from(body.instancePublicKey, "base64url"), format: "der", type: "spki" });
+    return verify(null, Buffer.from(serializeConnectionPublication(body)), publicKey, Buffer.from(body.signature, "base64url"));
+  } catch {
+    return false;
+  }
+}
+
 function publicApproval(authorization: DeviceAuthorization, allowedActions: string[]): Record<string, unknown> {
   return {
     id: authorization.id,
@@ -166,6 +238,7 @@ function publicApproval(authorization: DeviceAuthorization, allowedActions: stri
     platform: authorization.platform,
     publicKeyFingerprint: authorization.publicKeyFingerprint,
     requestedScopes: authorization.scopes,
+    agentProfile: authorization.agentProfile,
     status: authorization.status,
     createdAt: authorization.createdAt,
     expiresAt: authorization.expiresAt,
@@ -219,7 +292,7 @@ function setSession(reply: FastifyReply, dependencies: AppDependencies, token: s
   // GitHub Pages and the demo API use different origins. Lax cookies are not
   // sent on the cross-site fetches used by the console, so the session would
   // disappear immediately after a successful email-code exchange.
-  const crossSiteSession = dependencies.config.webOrigin !== dependencies.config.issuerUrl;
+  const crossSiteSession = [...dependencies.config.allowedWebOrigins].some((allowedOrigin) => allowedOrigin !== dependencies.config.issuerUrl);
   reply.setCookie(dependencies.config.sessionCookieName, token, {
     httpOnly: true,
     secure: crossSiteSession || dependencies.config.webOrigin.startsWith("https://"),
@@ -373,7 +446,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (!request.url.startsWith("/v1/") || !["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return;
     // Device renewal is an instance-authenticated machine-to-machine flow. It has no browser session,
     // and the final step is protected by a one-time challenge plus the InstanceIdentity signature.
-    if (/^\/v1\/instance-bindings\/[^/]+\/renew(?:\/challenge)?$/.test(request.url.split("?", 1)[0] ?? "")) return;
+    if (/^\/v1\/instance-bindings\/[^/]+\/(?:renew(?:\/challenge)?|connection)$/.test(request.url.split("?", 1)[0] ?? "")) return;
     const origin = request.headers.origin;
     if (typeof origin !== "string" || !dependencies.config.allowedWebOrigins.has(origin)) {
       throw new AppError(403, "CSRF_ORIGIN_MISMATCH", "Website mutations require an allowed Origin.");
@@ -458,10 +531,18 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (body.client_id !== dependencies.config.clientId) return oauthError(reply, "invalid_client", "Unsupported client_id.");
     if (body.agent_action === "create" && body.agent_hint) return oauthError(reply, "invalid_request", "agent_hint cannot be combined with agent_action=create.");
     if (body.agent_hint && !(await dependencies.store.getAgent(body.agent_hint))) return oauthError(reply, "invalid_request", "agent_hint does not identify an Agent.");
+    let agentProfile: AgentProfileDraft | null = null;
+    if (body.agent_profile) {
+      try {
+        agentProfile = agentProfileDraftSchema.parse(JSON.parse(body.agent_profile));
+      } catch {
+        return oauthError(reply, "invalid_request", "agent_profile is invalid.");
+      }
+    }
     const authorization: DeviceAuthorization = {
       id: randomUUID(), clientId: body.client_id, agentHint: body.agent_hint ?? null, agentCreationRequested: body.agent_action === "create", agentId: null, instanceId: body.instance_id,
       instancePublicKey: body.instance_public_key, publicKeyFingerprint: sha256(body.instance_public_key).slice(0, 16), instanceLabel: body.instance_label,
-      platform: body.platform, scopes: parseScopes(body.scope), codeChallenge: body.code_challenge, deviceCodeHash: sha256(randomToken()),
+      platform: body.platform, scopes: parseScopes(body.scope), agentProfile, codeChallenge: body.code_challenge, deviceCodeHash: sha256(randomToken()),
       pollIntervalSeconds: 5, lastPolledAt: null, status: "pending", decisionReason: null, decidedAt: null, decidedByUserId: null,
       bindingJti: null, exchangedAt: null, createdAt: nowIso(), expiresAt: expiryIso(dependencies.config.deviceAuthorizationTtlMs),
     };
@@ -797,6 +878,34 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     });
     return reply.code(result.status).send(result.body);
   });
+  app.post("/v1/instance-bindings/:jti/connection", { config: { rateLimit: { max: dependencies.config.rateLimits.bindingStatus.max, timeWindow: dependencies.config.rateLimits.bindingStatus.timeWindowMs } } }, async (request) => {
+    const { jti } = request.params as { jti: string };
+    const body = connectionPublicationSchema.parse(request.body);
+    if (body.jti !== jti) throw new AppError(400, "JTI_MISMATCH", "Connection publication JTI does not match the URL.");
+    if (Math.abs(body.timestamp - Math.floor(Date.now() / 1000)) > 300) throw new AppError(400, "STALE_CONNECTION_PROOF", "Connection publication proof is expired.");
+    if (body.allowDiscovery && body.multiaddrs.length === 0 && body.relayMultiaddrs.length === 0) throw new AppError(400, "CONNECTION_ENDPOINT_REQUIRED", "A discoverable Agent must publish at least one multiaddr.");
+
+    const binding = assertPresent(await dependencies.store.getBinding(jti), 404, "NOT_FOUND", "Instance binding was not found.");
+    if (binding.status !== "active" || Date.parse(binding.expiresAt) <= Date.now()) throw new AppError(409, "BINDING_NOT_ACTIVE", "Only an active binding can publish a connection endpoint.");
+    if (binding.agentId !== body.agentId || binding.instanceId !== body.instanceId || binding.instancePublicKey !== body.instancePublicKey) throw new AppError(400, "INSTANCE_MISMATCH", "Connection publication does not match the bound instance.");
+    if (!verifyConnectionPublication(body)) throw new AppError(401, "INVALID_CONNECTION_PROOF", "Connection publication proof could not be verified.");
+
+    const existing = await dependencies.store.getAgentPublicProfile(body.agentId) ?? defaultPublicProfile(body.agentId);
+    const profile: AgentPublicProfile = {
+      ...existing,
+      connection: {
+        allowDiscovery: body.allowDiscovery,
+        allowDirectDial: body.allowDirectDial,
+        peerId: body.peerId,
+        multiaddrs: [...body.multiaddrs],
+        relayMultiaddrs: [...body.relayMultiaddrs],
+      },
+      updatedAt: nowIso(),
+    };
+    await dependencies.store.saveAgentPublicProfile(profile);
+    await dependencies.store.addAuditEvent(event({ actorUserId: null, agentId: body.agentId, instanceId: body.instanceId, bindingJti: binding.jti, action: "agent_public_connection_published", detail: { allowDiscovery: body.allowDiscovery, allowDirectDial: body.allowDirectDial, multiaddrCount: body.multiaddrs.length, relayMultiaddrCount: body.relayMultiaddrs.length } }));
+    return { connection: publicProfile(profile).connection };
+  });
   app.get("/v1/public/agents", async (request) => {
     const query = request.query as { query?: string; tag?: string; capability?: string; verified?: string; connection?: string };
     const search = (query.query ?? "").trim().toLowerCase();
@@ -982,7 +1091,9 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
           const name = `${authorization.instanceLabel} Agent`.slice(0, 120);
           const agent: Agent = { id: `did:agentid:agt_${authorization.id.replaceAll("-", "").slice(0, 24)}`, name, ownerId: user.id, status: "active", createdAt, updatedAt: createdAt };
           await store.createAgent(agent, user.id);
-          await store.saveAgentPublicProfile(defaultPublicProfile(agent.id));
+          // An Agent created explicitly by OpenClaw is discoverable by default.
+          // Connection endpoints remain private until the instance publishes them.
+          await store.saveAgentPublicProfile(defaultPublicProfile(agent.id, true, authorization.scopes, authorization.agentProfile));
           await store.addAuditEvent(event({ actorUserId: user.id, agentId: agent.id, instanceId: authorization.instanceId, bindingJti: null, action: "agent_created_for_device_authorization", detail: { name } }));
           selectedAgentId = agent.id;
         }

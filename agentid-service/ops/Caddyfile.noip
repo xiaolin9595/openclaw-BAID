@@ -1,0 +1,12 @@
+http://agentid-baid.ddnsking.com {
+  encode gzip
+
+  @api path /health /health/* /metrics /oauth/* /v1/* /.well-known/*
+  handle @api {
+    reverse_proxy 127.0.0.1:8787
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:4173
+  }
+}

@@ -43,6 +43,7 @@ import {
 } from "./instance-id.js";
 import {
   getAgentIdEnforcementMode,
+  publishAgentIdConnection,
   type AgentIdBindingFile,
 } from "./agentid.js";
 import { createAgentIdMaintenance, type AgentIdMaintenance } from "./agentid-maintenance.js";
@@ -173,6 +174,33 @@ export function createMeshNetwork(options: {
     return verifyP2PMessageAgentId(message, config.agentId);
   }
 
+  async function publishPublicConnection(binding = state.agentIdBinding): Promise<void> {
+    if (!binding || !state.node || !state.instanceIdentity || !state.signMessage) return;
+    const publication = config.agentId?.publicConnection;
+    if (publication?.enabled === false) return;
+    const configuredAddrs = publication?.announceAddrs?.filter((value) => typeof value === "string" && value.trim()) ?? [];
+    const listenAddrs = configuredAddrs.length > 0
+      ? configuredAddrs
+      : state.node.getMultiaddrs().map((multiaddr) => multiaddr.toString()).filter((value) => !value.includes("/tcp/0") && !value.includes("/udp/0"));
+    const relayMultiaddrs = publication?.relayMultiaddrs?.filter((value) => typeof value === "string" && value.trim()) ?? [];
+    if (listenAddrs.length === 0 && relayMultiaddrs.length === 0) {
+      logger?.warn?.("[libp2p-mesh] AgentID public connection is enabled but no announce or relay multiaddr is available");
+      return;
+    }
+    await publishAgentIdConnection({
+      binding,
+      identity: state.instanceIdentity,
+      signMessage: state.signMessage,
+      peerId: state.node.peerId.toString(),
+      multiaddrs: listenAddrs,
+      relayMultiaddrs,
+      allowDiscovery: true,
+      allowDirectDial: publication?.allowDirectDial !== false,
+    }).catch((error) => {
+      logger?.warn?.(`[libp2p-mesh] Failed to publish AgentID public connection: ${String(error)}`);
+    });
+  }
+
   async function start(): Promise<void> {
     // Load or create lightweight BAID-inspired instance identity
     const instanceResult = await loadOrCreateInstanceIdentity({
@@ -189,6 +217,7 @@ export function createMeshNetwork(options: {
       onBindingChange: (binding) => {
         state.agentIdBinding = binding?.status === "active" ? binding : null;
         if (binding?.status === "active") logger?.info?.(`[libp2p-mesh] AgentID linked: ${binding.agentId}`);
+        if (binding?.status === "active") void publishPublicConnection(binding);
       },
     });
     await state.agentIdMaintenance.refreshNow();
@@ -488,6 +517,7 @@ export function createMeshNetwork(options: {
 
     logger?.info?.(`[libp2p-mesh] Node started. Peer ID: ${state.node.peerId.toString()}`);
     logger?.info?.(`[libp2p-mesh] Listening on: ${state.node.getMultiaddrs().map((ma) => ma.toString()).join(", ")}`);
+    await publishPublicConnection();
   }
 
   async function stop(): Promise<void> {
@@ -739,6 +769,10 @@ export function createMeshNetwork(options: {
     return state.instanceIdentity ?? undefined;
   }
 
+  function getAgentId(): string | undefined {
+    return state.agentIdBinding?.status === "active" ? state.agentIdBinding.agentId : undefined;
+  }
+
   async function dial(multiaddr: string): Promise<void> {
     if (!state.node) {
       throw new Error("Mesh network is not started");
@@ -780,6 +814,7 @@ export function createMeshNetwork(options: {
     getMultiaddrs,
     dial,
     getInstanceIdentity,
+    getAgentId,
     getNATStatus,
   };
 }

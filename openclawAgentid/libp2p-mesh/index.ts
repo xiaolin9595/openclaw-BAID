@@ -214,9 +214,19 @@ function agentIdConfigSchema() {
         type: "object",
         additionalProperties: false,
         properties: {
-          enabled: { type: "boolean", default: false, description: "Expose a loopback-only browser connection bridge." },
+          enabled: { type: "boolean", default: true, description: "Expose a loopback-only browser connection bridge when AgentID is configured." },
           port: { type: "number", minimum: 1024, maximum: 65535, default: 8799 },
           allowedOrigins: { type: "array", items: { type: "string" }, description: "Browser origins allowed to call the loopback bridge." },
+        },
+      },
+      publicConnection: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          enabled: { type: "boolean", default: true, description: "Publish the verified PeerID and dialable multiaddrs to the AgentID directory." },
+          allowDirectDial: { type: "boolean", default: true, description: "Include direct multiaddrs in discovery tickets." },
+          announceAddrs: { type: "array", items: { type: "string" }, description: "Explicit public multiaddrs to publish. If omitted, runtime listen addresses are used." },
+          relayMultiaddrs: { type: "array", items: { type: "string" }, description: "Relay multiaddrs to publish for peers behind NAT." },
         },
       },
     },

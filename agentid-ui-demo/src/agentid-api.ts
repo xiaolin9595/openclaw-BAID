@@ -1,5 +1,8 @@
+const productionApiOrigin = "https://agentid-baid.site";
 const defaultApiOrigin = typeof window !== "undefined"
-  ? `${window.location.protocol}//${window.location.hostname}:8787`
+  ? window.location.hostname === "agentid-baid.site"
+    ? window.location.origin
+    : productionApiOrigin
   : "http://127.0.0.1:8787";
 const API_BASE_URL = (import.meta.env.VITE_AGENTID_API_URL ?? defaultApiOrigin).replace(/\/$/, "");
 const DEMO_CONTROL_URL = (import.meta.env.VITE_DEMO_CONTROL_URL ?? "").replace(/\/$/, "");
@@ -91,6 +94,12 @@ export type Approval = {
   platform: string;
   publicKeyFingerprint: string;
   scopes: string[];
+  agentProfile?: {
+    summary: string;
+    role: string;
+    language: string;
+    attributes: Array<Pick<PublicAttribute, "key" | "label" | "value" | "kind">>;
+  } | null;
   status: "pending" | "approved" | "denied" | "expired" | "exchanged" | string;
   expiresAt: string;
   approvedAt?: string;

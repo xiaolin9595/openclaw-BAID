@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowLeftOutlined,
@@ -62,6 +62,11 @@ const SITE_BASE = import.meta.env.BASE_URL;
 
 function pageUrl(page: string, query = "") {
   return `${SITE_BASE}${page}${query}`;
+}
+
+function openConsoleLogin(event: MouseEvent<HTMLAnchorElement>) {
+  event.preventDefault();
+  window.location.assign(pageUrl("login.html"));
 }
 
 const baseAgents: AgentRecord[] = [
@@ -205,7 +210,7 @@ function mapPublicRecord(record: PublicAgentRecord): AgentRecord {
     initials: fallback?.initials ?? record.agent.name.slice(0, 2).toUpperCase(),
     summary: record.profile.summary || fallback?.summary || "这个 Agent 还没有公开简介。",
     ownerLabel: fallback?.ownerLabel ?? "公开 Agent",
-    attributes: attributes.length ? attributes : fallback?.attributes ?? [],
+    attributes,
     status: record.agent.status === "active" ? "verified" : "unknown",
     instanceCount: fallback?.instanceCount ?? 0,
     lastSeen: fallback?.lastSeen ?? "状态未知",
@@ -213,6 +218,7 @@ function mapPublicRecord(record: PublicAgentRecord): AgentRecord {
     role: record.profile.role || fallback?.role || "通用 Agent",
     language: record.profile.language || fallback?.language || "未指定",
     demoBacked: fallback?.demoBacked,
+    capabilities: attributes.filter((attribute) => attribute.kind === "capability").map((attribute) => attribute.value),
     connection: record.profile.connection,
   };
 }
@@ -270,7 +276,7 @@ function AgentDirectory({ agents }: { agents: AgentRecord[] }) {
         </a>
         <nav className="directory-nav" aria-label="主导航">
           <a className="nav-current" href={pageUrl("agent-public.html")}>Agent 目录</a>
-          <a href={pageUrl("control-plane.html")}>控制台 <span aria-hidden="true">↗</span></a>
+          <a href={pageUrl("login.html")} onClick={openConsoleLogin}>控制台 <span aria-hidden="true">↗</span></a>
         </nav>
       </header>
 
@@ -333,14 +339,26 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
     setConnectionState("pairing");
     setConnectionError(null);
     try {
-      const ticket = await agentIdApi.getDiscoveryTicket(agentId);
       const bridge = "http://127.0.0.1:8799";
-      const pairResponse = await fetch(`${bridge}/v1/local/pair`, { method: "POST", headers: { "content-type": "application/json" } });
+      const localFetch = async (path: string, init?: RequestInit): Promise<Response> => {
+        try {
+          return await fetch(`${bridge}${path}`, init);
+        } catch {
+          throw new Error("无法访问本机 OpenClaw。请先启动启用 libp2p-mesh 的客户端，并确认本机连接桥监听 127.0.0.1:8799。");
+        }
+      };
+      const localStatusResponse = await localFetch("/v1/local/status");
+      const localStatus = await localStatusResponse.json().catch(() => ({})) as { agentId?: string | null };
+      if (localStatus.agentId === agentId) {
+        throw new Error("这是当前本机 Agent，无需建立自连接。请返回目录选择其他 Agent。");
+      }
+      const ticket = await agentIdApi.getDiscoveryTicket(agentId);
+      const pairResponse = await localFetch("/v1/local/pair", { method: "POST", headers: { "content-type": "application/json" } });
       if (!pairResponse.ok) throw new Error("本机 OpenClaw 连接桥不可用。");
       const pair = await pairResponse.json() as { localSessionToken?: string };
       if (!pair.localSessionToken) throw new Error("本机 OpenClaw 未返回配对令牌。");
       setConnectionState("dialing");
-      const importResponse = await fetch(`${bridge}/v1/local/connections/import`, {
+      const importResponse = await localFetch("/v1/local/connections/import", {
         method: "POST",
         headers: { "content-type": "application/json", "x-openclaw-bridge-token": pair.localSessionToken },
         body: JSON.stringify({ agentId, label: agent.name, initialMessage: message, discoveryTicket: ticket.ticket }),
@@ -349,7 +367,7 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
       if (!importResponse.ok || !importBody.requestId) throw new Error(importBody.error ?? "OpenClaw 无法开始连接。");
       for (let attempt = 0; attempt < 8; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 600));
-        const statusResponse = await fetch(`${bridge}/v1/local/connections/${encodeURIComponent(agentId)}`, { headers: { "x-openclaw-bridge-token": pair.localSessionToken } });
+        const statusResponse = await localFetch(`/v1/local/connections/${encodeURIComponent(agentId)}`, { headers: { "x-openclaw-bridge-token": pair.localSessionToken } });
         const statusBody = await statusResponse.json().catch(() => ({})) as { target?: { status?: string; lastError?: string } };
         if (statusBody.target?.status === "verified") {
           setConnectionState("verified");
@@ -373,7 +391,7 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
         </a>
         <nav className="directory-nav" aria-label="主导航">
           <a className="nav-current" href={pageUrl("agent-public.html")}>Agent 目录</a>
-          <a href={pageUrl("control-plane.html")}>控制台 <span aria-hidden="true">↗</span></a>
+          <a href={pageUrl("login.html")} onClick={openConsoleLogin}>控制台 <span aria-hidden="true">↗</span></a>
         </nav>
       </header>
 

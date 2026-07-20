@@ -16,6 +16,7 @@ import {
   type AgentIdLinkResult,
 } from "./agentid.js";
 import { loadOrCreateInstanceIdentity } from "./instance-id.js";
+import { createUserProfileStore } from "./user-profile-store.js";
 import { applyAgentIdConfig, getLibp2pMeshConfig, type OpenClawConfigLike } from "./setup-config.js";
 import type { AgentIdConfig, InstanceIdentity } from "./types.js";
 
@@ -91,11 +92,13 @@ export function registerLibp2pMeshAgentIdCommand(
       const identity = await (deps.loadIdentity ?? loadOrCreateInstanceIdentity)({
         name: (api.pluginConfig as { instanceName?: string } | undefined)?.instanceName,
       });
+      const profileAttributes = await createUserProfileStore({ logger: api.logger }).listAttributes();
       const result = await (deps.link ?? linkAgentId)({
         issuer,
         agentId: options.agent,
         createAgent: Boolean(options.createAgent),
         identity: identity.identity,
+        profileAttributes,
         onDeviceAuthorization(authorization) {
           print(`Open ${authorization.verificationUriComplete}`);
           openVerificationUri(authorization.verificationUriComplete);

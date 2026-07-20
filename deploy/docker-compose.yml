@@ -15,8 +15,8 @@ services:
 
   agentid-service:
     build:
-      context: ..
-      dockerfile: agentid-service/Dockerfile
+      context: ../agentid-service
+      dockerfile: Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,6 +51,7 @@ services:
     volumes:
       - caddy-data:/data
       - caddy-config:/config
+      - ./certbot:/certs:ro
 
 secrets:
   issuer-ed25519.pem:
