@@ -177,7 +177,7 @@ function managedPublicProfile(profile: AgentPublicProfile): AgentPublicProfile {
 function uniquePublicAttributes(attributes: AgentPublicProfile["attributes"]): AgentPublicProfile["attributes"] {
   const seen = new Set<string>();
   return attributes.filter((attribute) => {
-    const key = `${attribute.kind}:${attribute.key}:${attribute.value}`;
+    const key = `${attribute.key}:${attribute.value}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
