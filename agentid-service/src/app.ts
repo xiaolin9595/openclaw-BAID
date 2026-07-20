@@ -154,7 +154,7 @@ function defaultPublicProfile(agentId: string, published = false, scopes: Scope[
     if (!verifiedKeys.has(`${attribute.key}:${attribute.value}`)) attributes.push(attribute);
   }
   for (const attribute of draft?.attributes ?? []) {
-    const key = `${attribute.key}:${attribute.value}`;
+    const key = attribute.value.trim().toLowerCase();
     if (verifiedKeys.has(key)) continue;
     attributes.push({ ...attribute, trust: "self_declared", visible: true });
   }
