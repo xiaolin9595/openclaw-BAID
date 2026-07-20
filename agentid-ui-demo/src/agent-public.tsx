@@ -319,6 +319,7 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
   const [connectionState, setConnectionState] = useState<"idle" | "pairing" | "dialing" | "verified" | "failed">("idle");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const visibleAttributes = agent.attributes.filter((attribute) => attribute.visible !== false);
+  const hasPublishedConnection = Boolean(agent.connection?.allowDiscovery && (agent.connection.multiaddrs.length || agent.connection.relayMultiaddrs.length));
   const attributeGroups = [
     { kind: "capability" as const, title: "能力", note: "可用于 Agent Discovery 的任务匹配" },
     { kind: "tag" as const, title: "标签", note: "由 Agent 或所有者公开声明" },
@@ -344,6 +345,9 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
     setConnectionState("pairing");
     setConnectionError(null);
     try {
+      if (!hasPublishedConnection) {
+        throw new Error("目标 Agent 尚未公开可拨号的 PeerID 或 multiaddr。请先让目标 OpenClaw 启动 libp2p-mesh，并开启 AgentID publicConnection。");
+      }
       const bridge = "http://127.0.0.1:8799";
       const localFetch = async (path: string, init?: RequestInit): Promise<Response> => {
         try {
@@ -410,7 +414,7 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
             <p className="agent-summary">{agent.summary} 这个页面只展示 Agent 主动公开的属性，不展示用户账户或设备私密信息。</p>
             <div className="profile-facts" aria-label="Agent 基础资料"><span><small>角色</small><strong>{agent.role}</strong></span><span><small>运行环境</small><strong>{agent.language}</strong></span><span><small>公开属性</small><strong>{visibleAttributes.length} 项</strong></span></div>
             <div className="identity-line"><span className="identity-label">AgentID</span><code title={agentId}>{shorten(agentId, 50)}</code><button className="copy-button" type="button" onClick={copyAgentId} aria-label="复制 AgentID" title="复制 AgentID"><CopyOutlined /></button>{copied && <span className="copied-note">已复制</span>}</div>
-            <div className="detail-actions"><button className="communication-button" type="button" onClick={() => setCommunicationOpen((value) => !value)} disabled={!isVerified}><MessageOutlined /> {communicationOpen ? "收起通信入口" : "发起通信"}</button><span>{agent.connection?.allowDiscovery ? "可请求本机 OpenClaw 建立连接" : "目标尚未公开连接地址"}</span></div>
+            <div className="detail-actions"><button className="communication-button" type="button" onClick={() => setCommunicationOpen((value) => !value)} disabled={!isVerified}><MessageOutlined /> {communicationOpen ? "收起通信入口" : "发起通信"}</button><span>{hasPublishedConnection ? "可请求本机 OpenClaw 建立连接" : "目标尚未公开可拨号地址"}</span></div>
           </div>
           <aside className="verification-panel" aria-label="身份状态"><div className="verification-icon"><SafetyCertificateOutlined /></div><div><span className="panel-label">身份状态</span><strong>{isVerified ? "已验证" : "等待绑定"}</strong><p>{isVerified ? "AgentID 绑定凭证有效" : "尚未发现有效绑定"}</p></div>{isVerified && <CheckCircleFilled className="verification-check" />}</aside>
         </div>
@@ -438,7 +442,7 @@ function AgentDetail({ agent, demo, loading }: { agent: AgentRecord; demo: DemoS
               <button
                 className="communication-connect"
                 type="button"
-                disabled={!agent.connection?.allowDiscovery || connectionState === "pairing" || connectionState === "dialing"}
+                disabled={connectionState === "pairing" || connectionState === "dialing"}
                 onClick={() => void connectLocalOpenClaw()}
               >
                 <LinkOutlined /> {connectionState === "pairing" ? "正在配对本机 OpenClaw" : connectionState === "dialing" ? "正在建立连接" : connectionState === "verified" ? "已加入通信列表" : "连接到本机 OpenClaw"}
