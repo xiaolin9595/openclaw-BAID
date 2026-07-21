@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: agentid
       POSTGRES_USER: agentid
@@ -14,6 +15,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   agentid-service:
+    restart: unless-stopped
     build:
       context: ../agentid-service
       dockerfile: Dockerfile
@@ -37,6 +39,7 @@ services:
       retries: 6
 
   web:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: deploy/web.Dockerfile
