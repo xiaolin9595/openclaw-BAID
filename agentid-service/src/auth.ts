@@ -129,6 +129,18 @@ export interface MagicLinkDelivery {
   send(input: { email: string; url: string; code: string; expiresAt: string }): Promise<void>;
 }
 
+export class EmailDeliveryError extends Error {
+  readonly status: number;
+  readonly providerCode: string | null;
+
+  constructor(status: number, providerCode: string | null, message: string) {
+    super(message);
+    this.name = "EmailDeliveryError";
+    this.status = status;
+    this.providerCode = providerCode;
+  }
+}
+
 export interface DevelopmentMailbox {
   getLatestCode(email: string): { code: string; expiresAt: string } | null;
 }
@@ -168,7 +180,18 @@ export class ResendMagicLinkDelivery implements MagicLinkDelivery {
         html: `<div style="font-family: sans-serif; line-height: 1.6"><h2>AgentID 验证码</h2><p>你的验证码是：</p><p style="font-size: 28px; letter-spacing: 0.2em"><strong>${escapedCode}</strong></p><p>验证码有效期至 ${escapeHtml(expiresAt)}。</p><p>也可以打开：<a href="${escapedUrl}">${escapedUrl}</a></p><p>如果不是你本人操作，请忽略此邮件。</p></div>`,
       }),
     });
-    if (!response.ok) throw new Error(`Resend email delivery failed with ${response.status}.`);
+    if (!response.ok) {
+      let providerCode: string | null = null;
+      let providerMessage = "Resend rejected the email request.";
+      try {
+        const payload = await response.json() as { name?: unknown; message?: unknown };
+        providerCode = typeof payload.name === "string" ? payload.name : null;
+        if (typeof payload.message === "string" && payload.message.length <= 500) providerMessage = payload.message;
+      } catch {
+        // Keep provider failures actionable without exposing the response body to the client.
+      }
+      throw new EmailDeliveryError(response.status, providerCode, providerMessage);
+    }
   }
 }
 

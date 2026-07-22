@@ -278,8 +278,20 @@ export default function ControlPlane() {
     }
   };
 
+  const handleLogout = async () => {
+    setIsBusy(true);
+    try {
+      await agentIdApi.logout();
+      window.location.assign(pageUrl("login.html"));
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   if (isLoading) return <LoadingScreen />;
-  if (!user) return <SignInScreen error={fatalError} onSignedIn={(signedInUser) => {
+  if (!user) return <PasswordSignInScreen error={fatalError} onSignedIn={(signedInUser) => {
     if (authOnly) {
       const query = authorizationRequestId ? `?request_id=${encodeURIComponent(authorizationRequestId)}` : "";
       window.location.assign(pageUrl("control-plane.html", query));
@@ -300,12 +312,12 @@ export default function ControlPlane() {
       </aside>
 
       <main className="console-main">
-        <header className="topbar"><div className="topbar-context"><span className="eyebrow">AGENT IDENTITY PLATFORM</span><span className="notice" role="status">{notice}</span></div><div className="topbar-actions">{demoModeEnabled ? <a className="topbar-link" href={pageUrl("openclaw.html")}><LinkOutlined /> OpenClaw 运行页</a> : null}<button className="icon-button" aria-label="刷新身份数据" onClick={() => void loadWorkspace()} title="刷新" type="button"><BellOutlined /></button></div></header>
+        <header className="topbar"><div className="topbar-context"><span className="eyebrow">AGENT IDENTITY PLATFORM</span><span className="notice" role="status">{notice}</span></div><div className="topbar-actions">{demoModeEnabled ? <a className="topbar-link" href={pageUrl("openclaw.html")}><LinkOutlined /> OpenClaw 运行页</a> : null}<a className="topbar-link" href={pageUrl("agent-public.html")}><LinkOutlined /> 公共 Agent 页面</a><button className="icon-button" aria-label="刷新身份数据" onClick={() => void loadWorkspace()} title="刷新" type="button"><BellOutlined /></button><button className="topbar-link" disabled={isBusy} onClick={() => void handleLogout()} type="button">退出登录</button></div></header>
         {fatalError ? <div className="surface-error" role="alert">{fatalError}</div> : null}
         {activeView === "agents" ? <AgentsView agents={agents} publicProfile={selectedAgent ? publicProfiles[selectedAgent.id] ?? null : null} members={selectedAgent ? members[selectedAgent.id] ?? [] : []} instances={selectedInstances} selectedAgent={selectedAgent} selectedAgentId={selectedAgentId} detailTab={detailTab} onSavePublicProfile={async (profile) => { if (!selectedAgent) return; const saved = await agentIdApi.updatePublicProfile(selectedAgent.id, profile); setPublicProfiles((current) => ({ ...current, [selectedAgent.id]: saved })); setNotice(saved.published ? "公开资料已发布" : "公开资料已保存为草稿"); }} onCreate={() => setIsCreateOpen(true)} onRename={handleRenameAgent} onOpenApprovals={() => setActiveView("approvals")} onOpenDevice={setDeviceDetail} onPair={() => setIsPairingOpen(true)} onRevoke={setRevokeTarget} onSelectAgent={setSelectedAgentId} onSelectTab={setDetailTab} /> : null}
         {activeView === "approvals" ? <ApprovalsView agents={agents} approvals={approvals} deepLinkRequest={approvalTarget} onBack={() => setActiveView("agents")} onOpen={openApproval} /> : null}
         {activeView === "activity" ? <ActivityView events={events} onBack={() => setActiveView("agents")} /> : null}
-        {activeView === "security" ? <SecurityView user={user} onEmailBound={(updated) => { setUser(updated); setNotice("邮箱已绑定，可用于恢复账号"); }} /> : null}
+        {activeView === "security" ? <AccountSecurityView user={user} /> : null}
       </main>
 
       <div className="mobile-nav" aria-label="移动端导航">{navigation.map((item) => <button className={activeView === item.id ? "is-active" : ""} key={item.id} onClick={() => setActiveView(item.id)} type="button">{item.icon}<span>{item.label}</span></button>)}</div>
@@ -317,6 +329,46 @@ export default function ControlPlane() {
       {revokeTarget ? <RevokeModal busy={isBusy} device={revokeTarget} name={revokeName} onChange={setRevokeName} onClose={() => { setRevokeTarget(null); setRevokeName(""); }} onConfirm={() => void handleRevoke()} /> : null}
     </div>
   );
+}
+
+function PasswordSignInScreen({ error, onSignedIn }: { error: string | null; onSignedIn: (user?: CurrentUser) => void }) {
+  const [accountMode, setAccountMode] = useState<"login" | "register">("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setNotice("");
+    try {
+      const signedInUser = accountMode === "register"
+        ? await agentIdApi.registerAccount(username.trim(), password, displayName.trim() || undefined)
+        : await agentIdApi.login(username.trim(), password);
+      await onSignedIn(signedInUser);
+    } catch (requestError) {
+      setNotice(errorMessage(requestError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <main className="auth-shell"><section className="auth-panel">
+    <div className="brand-lockup"><div className="brand-mark">A</div><div><strong>AgentID</strong><span>IDENTITY CONSOLE</span></div></div>
+    <span className="eyebrow">ACCOUNT ACCESS</span>
+    <h1>{accountMode === "register" ? "创建账号" : "登录"}</h1>
+    <p>使用账号和密码访问 AgentID 控制台。账号创建后立即可用，登录后即可管理 Agent 和授权设备。</p>
+    {error ? <div className="surface-error" role="alert">{error}</div> : null}
+    <div className="auth-switch"><span>{accountMode === "register" ? "已有账号？" : "还没有账号？"}</span><button className="text-action" onClick={() => { setAccountMode(accountMode === "register" ? "login" : "register"); setNotice(""); }} type="button">{accountMode === "register" ? "返回登录" : "创建账号"}</button></div>
+    <label className="field-label" htmlFor="username">账号</label>
+    <input autoComplete="username" id="username" onChange={(event) => setUsername(event.target.value)} placeholder="例如 agent_owner" value={username} />
+    <label className="field-label" htmlFor="password">密码</label>
+    <input autoComplete={accountMode === "register" ? "new-password" : "current-password"} id="password" onChange={(event) => setPassword(event.target.value)} placeholder="至少 8 位" type="password" value={password} />
+    {accountMode === "register" ? <><label className="field-label" htmlFor="display-name">显示名称（可选）</label><input id="display-name" onChange={(event) => setDisplayName(event.target.value)} placeholder="例如 Agent Owner" value={displayName} /></> : null}
+    <button className="button button-primary auth-submit" disabled={username.trim().length < 3 || password.length < 8 || busy} onClick={() => void submit()} type="button">{accountMode === "register" ? "创建账号并登录" : "登录"} <RightOutlined /></button>
+    {notice ? <p className="auth-notice" role="status">{notice}</p> : null}
+  </section></main>;
 }
 
 function SignInScreen({ error, onSignedIn }: { error: string | null; onSignedIn: (user?: CurrentUser) => void }) {
@@ -339,15 +391,8 @@ function SignInScreen({ error, onSignedIn }: { error: string | null; onSignedIn:
     setBusy(true);
     try {
       if (accountMode === "register") {
-        if (registrationCodeSent) {
-          const verifiedUser = await agentIdApi.verifyRegistration(email.trim(), code.trim());
-          await onSignedIn(verifiedUser);
-        } else {
-          const result = await agentIdApi.registerAccount(username.trim(), email.trim(), password, displayName.trim() || undefined);
-          setRegistrationCodeSent(true);
-          setConsoleDelivery(result.delivery === "console");
-          setNotice(`注册验证码已发送，有效期至 ${formatTime(result.expiresAt)}。`);
-        }
+        const registeredUser = await agentIdApi.registerAccount(username.trim(), password, displayName.trim() || undefined);
+        await onSignedIn(registeredUser);
       } else {
         const signedInUser = await agentIdApi.login(username.trim(), password);
         await onSignedIn(signedInUser);
@@ -571,6 +616,10 @@ function ApprovalsView({ agents, approvals, deepLinkRequest, onBack, onOpen }: {
 
 function ActivityView({ events, onBack }: { events: AuditEvent[]; onBack: () => void }) {
   return <section className="page"><div className="page-heading"><div><span className="eyebrow">AUDIT LOG</span><h1>活动记录</h1><p>来自服务端追加审计流的身份与授权事件。</p></div><button className="button button-quiet" onClick={onBack} type="button"><ArrowLeftOutlined /> 返回 Agent</button></div>{events.length ? <section className="audit-list">{events.map((event) => <div className="audit-item" key={event.id}><span className="audit-mark" /><time>{formatTime(event.at)}</time><strong>{event.type.replaceAll("_", " ")}</strong><span>{event.agentId ?? event.instanceId ?? "账户"}</span><span aria-hidden="true"><RightOutlined /></span></div>)}</section> : <section className="empty-device-state compact"><FileSearchOutlined /><h3>尚无审计事件</h3><p>创建 Agent、批准、拒绝和撤销设备后，事件将显示在这里。</p></section>}</section>;
+}
+
+function AccountSecurityView({ user }: { user: CurrentUser }) {
+  return <section className="page"><div className="page-heading"><div><span className="eyebrow">ACCOUNT PROTECTION</span><h1>账户与安全</h1><p>账号完全由用户名和密码管理。</p></div></div><section className="security-list"><div className="security-row"><span className="security-icon"><UserOutlined /></span><div><strong>账号</strong><p>{user.username}</p></div><span className="status status-online"><CheckCircleFilled /> 已启用</span></div><div className="security-row"><span className="security-icon"><LockOutlined /></span><div><strong>密码登录</strong><p>密码使用服务端哈希保存，不会返回到浏览器。</p></div><span className="status status-online"><CheckCircleFilled /> 已启用</span></div></section><section className="security-note"><SafetyCertificateOutlined /><span>本系统不依赖邮箱、验证码或 Passkey 进行账号登录和恢复。请妥善保管密码。</span></section></section>;
 }
 
 function SecurityView({ user, onEmailBound }: { user: CurrentUser; onEmailBound: (user: CurrentUser) => void }) {

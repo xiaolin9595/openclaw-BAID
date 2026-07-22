@@ -174,6 +174,10 @@ export class MemoryStore implements Store {
     return value ? clone(value) : null;
   }
 
+  async deleteSessionByTokenHash(tokenHash: string): Promise<void> {
+    this.state.sessions.delete(tokenHash);
+  }
+
   async createMagicLink(link: MagicLink): Promise<void> {
     this.state.magicLinks.set(link.tokenHash, clone(link));
   }
@@ -603,6 +607,10 @@ export class PostgresStore implements Store {
     return row ? { id: string(row, "id"), userId: string(row, "user_id"), tokenHash: string(row, "token_hash"), expiresAt: timestamp(row, "expires_at"), verifiedAt: optionalTimestamp(row, "verified_at"), createdAt: timestamp(row, "created_at") } : null;
   }
 
+  async deleteSessionByTokenHash(tokenHash: string): Promise<void> {
+    await this.query("DELETE FROM sessions WHERE token_hash = $1", [tokenHash]);
+  }
+
   async createMagicLink(link: MagicLink): Promise<void> {
     await this.query("INSERT INTO magic_link_tokens (id, user_id, purpose, target_email, token_hash, verification_code_hash, return_to, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)", [link.id, link.userId, link.purpose, link.targetEmail, link.tokenHash, link.verificationCodeHash, link.returnTo, link.expiresAt, link.createdAt]);
   }
@@ -708,7 +716,7 @@ export class PostgresStore implements Store {
   async listMembers(agentId: string): Promise<AgentMember[]> {
     const rows = await this.query(`SELECT m.agent_id, m.user_id, u.email, u.display_name, m.role, m.status, m.created_at
       FROM agent_members m JOIN users u ON u.id = m.user_id WHERE m.agent_id = $1 ORDER BY m.created_at`, [agentId]);
-    return rows.map((row) => ({ agentId: string(row, "agent_id"), userId: string(row, "user_id"), email: string(row, "email"), displayName: string(row, "display_name"), role: string(row, "role") as AgentRole, status: string(row, "status") as "active" | "disabled", createdAt: timestamp(row, "created_at") }));
+    return rows.map((row) => ({ agentId: string(row, "agent_id"), userId: string(row, "user_id"), email: optionalString(row, "email"), displayName: string(row, "display_name"), role: string(row, "role") as AgentRole, status: string(row, "status") as "active" | "disabled", createdAt: timestamp(row, "created_at") }));
   }
 
   async upsertMember(agentId: string, userId: string, role: AgentRole): Promise<void> {

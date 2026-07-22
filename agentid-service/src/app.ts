@@ -6,7 +6,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
-import type { DevelopmentMailbox, MagicLinkDelivery, WebAuthnAdapter } from "./auth.js";
+import { EmailDeliveryError, type DevelopmentMailbox, type MagicLinkDelivery, type WebAuthnAdapter } from "./auth.js";
 import { expiryIso, hashPassword, hmacSha256, nowIso, randomEmailLoginCode, randomToken, safeEqual, sha256, verifyPassword, type IssuerKey } from "./crypto.js";
 import type { AppConfig } from "./config.js";
 import { ALLOWED_SCOPES, type Agent, type AgentMember, type AgentProfileDraft, type AgentPublicConnection, type AgentPublicProfile, type AgentRole, type AuditEvent, type BindingRenewalChallenge, type DeviceAuthorization, type DeviceStatus, type InstanceBinding, type NewAuditEvent, type Scope, type Session, type Store, type User } from "./domain.js";
@@ -52,7 +52,7 @@ const tokenFormSchema = z.object({
   code_verifier: z.string().trim().min(43).max(256),
 });
 const magicLinkSchema = z.object({ email: emailSchema, returnTo: z.string().max(2048).optional() });
-const accountRegistrationSchema = z.object({ username: usernameSchema, email: emailSchema, password: passwordSchema, displayName: nameSchema.optional() });
+const accountRegistrationSchema = z.object({ username: usernameSchema, password: passwordSchema, displayName: nameSchema.optional() });
 const passwordLoginSchema = z.object({ identifier: identifierSchema, password: passwordSchema });
 const consumeSchema = z.object({ token: z.string().trim().min(1).max(512) });
 const emailCodeConsumeSchema = z.object({ email: emailSchema, code: z.string().regex(/^\d{6}$/) });
@@ -491,6 +491,13 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       metrics.increment("agentid_ibc_renewals_total", "IBC renewal outcomes.", 1, { result: "failure" });
       logOperationalAlert("ibc_renewal_failed", { resource: "instance_binding" });
     }
+    if (error instanceof EmailDeliveryError) {
+      logOperationalAlert("email_delivery_failed", { provider: "resend", status: error.status, provider_code: error.providerCode ?? "unknown" });
+      const message = error.providerCode === "validation_error" && error.status === 403
+        ? "验证码邮件发送失败：当前 Resend 发件域名只允许测试邮箱。请在 Resend 验证 agentid-baid.site 后重试。"
+        : "验证码邮件发送失败，请稍后重试。";
+      return reply.code(502).send({ error: { code: "EMAIL_DELIVERY_FAILED", message } });
+    }
     if (statusCode === 429) metrics.increment("agentid_rate_limited_total", "Total requests rejected by rate limiting.", 1, { route: request.routeOptions.url ?? "unknown" });
     if (error instanceof AppError) return reply.code(error.statusCode).send({ error: { code: error.code, message: error.message } });
     if (error instanceof ZodError) return reply.code(400).send({ error: { code: "INVALID_REQUEST", message: "Request body or parameters are invalid." } });
@@ -629,31 +636,23 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
 
   app.post("/v1/auth/register", { config: { rateLimit: { max: dependencies.config.rateLimits.auth.max, timeWindow: dependencies.config.rateLimits.auth.timeWindowMs } } }, async (request, reply) => {
     const body = accountRegistrationSchema.parse(request.body);
-    const registration = await dependencies.store.transaction(async (store) => {
+    const created = await dependencies.store.transaction(async (store) => {
       if (await store.getUserByUsername(body.username)) throw new AppError(409, "USERNAME_ALREADY_EXISTS", "This username is already registered.");
-      if (await store.getUserByEmail(body.email)) throw new AppError(409, "EMAIL_ALREADY_EXISTS", "This email is already bound to an account.");
       const createdAt = nowIso();
       const created: User = {
         id: `usr_${randomToken(16)}`,
         username: body.username,
-        email: body.email,
+        email: null,
         passwordHash: await hashPassword(body.password),
         displayName: body.displayName?.trim() || body.username,
         createdAt,
         emailVerifiedAt: null,
       };
       await store.createUser(created);
-      const token = randomToken();
-      const code = randomEmailLoginCode();
-      const link = { id: randomUUID(), userId: created.id, purpose: "registration" as const, targetEmail: body.email, tokenHash: sha256(token), verificationCodeHash: sha256(code), returnTo: "/", expiresAt: expiryIso(dependencies.config.magicLinkTtlMs), consumedAt: null, createdAt };
-      await store.createMagicLink(link);
-      return { link, code, token };
+      return created;
     });
-    const url = new URL("/v1/auth/magic-link/consume", dependencies.config.issuerUrl);
-    url.searchParams.set("token", registration.token);
-    url.searchParams.set("purpose", "registration");
-    await dependencies.magicLinkDelivery.send({ email: body.email, url: url.toString(), code: registration.code, expiresAt: registration.link.expiresAt });
-    return reply.code(202).send({ status: "verification_required", expiresAt: registration.link.expiresAt, delivery: dependencies.config.emailProvider === "console" ? "console" : "email" });
+    await createSession(reply, created.id, dependencies);
+    return reply.code(201).send({ status: "created", user: await publicUser(created, dependencies) });
   });
 
   app.post("/v1/auth/register/verify", { config: { rateLimit: { max: dependencies.config.rateLimits.auth.max, timeWindow: dependencies.config.rateLimits.auth.timeWindowMs } } }, async (request, reply) => {
@@ -689,11 +688,15 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (!user?.passwordHash || !(await verifyPassword(body.password, user.passwordHash))) {
       throw new AppError(401, "INVALID_CREDENTIALS", "Username or password is incorrect.");
     }
-    if (user.email && user.emailVerifiedAt === null) {
-      throw new AppError(403, "EMAIL_NOT_VERIFIED", "Please verify your email before signing in.");
-    }
     await createSession(reply, user.id, dependencies);
     return { user: await publicUser(user, dependencies) };
+  });
+
+  app.post("/v1/auth/logout", { config: { rateLimit: { max: dependencies.config.rateLimits.auth.max, timeWindow: dependencies.config.rateLimits.auth.timeWindowMs } } }, async (request, reply) => {
+    const token = request.cookies[dependencies.config.sessionCookieName];
+    if (token) await dependencies.store.deleteSessionByTokenHash(sha256(token));
+    reply.clearCookie(dependencies.config.sessionCookieName, { path: "/" });
+    return { status: "signed_out" };
   });
 
   const startEmailLogin = async (request: FastifyRequest, reply: FastifyReply) => {

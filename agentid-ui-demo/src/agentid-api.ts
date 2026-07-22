@@ -228,9 +228,9 @@ export const agentIdApi = {
     const response = await request<{ user: Omit<CurrentUser, "passkeyEnrolled"> & { passkeyEnrolled?: boolean } }>("/v1/me");
     return { ...response.user, passkeyEnrolled: response.user.passkeyEnrolled ?? false };
   },
-  async registerAccount(username: string, email: string, password: string, displayName?: string): Promise<{ expiresAt: string; delivery: "console" | "email" }> {
-    const response = await mutation<{ status: string; expiresAt: string; delivery?: "console" | "email" }>("/v1/auth/register", { username, email, password, displayName });
-    return { expiresAt: response.expiresAt, delivery: response.delivery === "console" ? "console" : "email" };
+  async registerAccount(username: string, password: string, displayName?: string): Promise<CurrentUser> {
+    const response = await mutation<{ user: Omit<CurrentUser, "passkeyEnrolled"> & { passkeyEnrolled?: boolean } }>("/v1/auth/register", { username, password, displayName });
+    return { ...response.user, passkeyEnrolled: response.user.passkeyEnrolled ?? false };
   },
   async verifyRegistration(email: string, code: string): Promise<CurrentUser> {
     const response = await mutation<{ user: Omit<CurrentUser, "passkeyEnrolled"> & { passkeyEnrolled?: boolean } }>("/v1/auth/register/verify", { email, code });
@@ -243,6 +243,9 @@ export const agentIdApi = {
   async login(identifier: string, password: string): Promise<CurrentUser> {
     const response = await mutation<{ user: Omit<CurrentUser, "passkeyEnrolled"> & { passkeyEnrolled?: boolean } }>("/v1/auth/login", { identifier, password });
     return { ...response.user, passkeyEnrolled: response.user.passkeyEnrolled ?? false };
+  },
+  async logout(): Promise<void> {
+    await mutation<{ status: string }>("/v1/auth/logout", {});
   },
   async startEmailCode(email: string): Promise<{ message: string; expiresAt: string; delivery: "console" | "email" }> {
     const response = await mutation<{ status: string; expiresAt: string; delivery?: "console" | "email" }>("/v1/auth/email-code/start", { email, returnTo: window.location.pathname + window.location.search });

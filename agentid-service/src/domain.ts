@@ -221,6 +221,7 @@ export interface Store {
   getUserByUsername(username: string): Promise<User | null>;
   createSession(session: Session): Promise<void>;
   getSessionByTokenHash(tokenHash: string): Promise<Session | null>;
+  deleteSessionByTokenHash(tokenHash: string): Promise<void>;
   createMagicLink(link: MagicLink): Promise<void>;
   consumeMagicLink(tokenHash: string, now: string, purpose?: MagicLinkPurpose): Promise<MagicLink | null>;
   consumeMagicLinkByCode(email: string, verificationCodeHash: string, now: string, purpose?: MagicLinkPurpose): Promise<MagicLink | null>;
